@@ -1,21 +1,16 @@
-import argparse
+from typing import List
+
 from allennlp.common.util import JsonDict, sanitize, group_by_count
 from allennlp.data import DatasetReader, Instance
-from allennlp.data.tokenizers.word_splitter import SpacyWordSplitter
 from allennlp.models import Model
 from allennlp.predictors.predictor import Predictor
 from allennlp.predictors.semantic_role_labeler import SemanticRoleLabelerPredictor
 from overrides import overrides
 from spacy.tokens import Doc
-from typing import List
 
 
 @Predictor.register("srl_verbatlas")
 class SRL(SemanticRoleLabelerPredictor):
-    """
-    Predictor for the :class:`~allennlp.models.bidaf.SemanticRoleLabeler` model.
-    """
-
     def __init__(
         self,
         model: Model,
@@ -25,44 +20,9 @@ class SRL(SemanticRoleLabelerPredictor):
         super().__init__(model, dataset_reader, language)
 
     def predict(self, sentence: str) -> JsonDict:
-        """
-        Predicts the semantic roles of the supplied sentence and returns a dictionary
-        with the results.
-
-        .. code-block:: js
-
-            {"words": [...],
-             "verbs": [
-                {"verb": "...", "description": "...", "tags": [...]},
-                ...
-                {"verb": "...", "description": "...", "tags": [...]},
-            ]}
-
-        Parameters
-        ----------
-        sentence, ``str``
-            The sentence to parse via semantic role labeling.
-
-        Returns
-        -------
-        A dictionary representation of the semantic roles in the sentence.
-        """
         return self.predict_json({"sentence": sentence})
 
     def predict_tokenized(self, tokenized_sentence: List[str]) -> JsonDict:
-        """
-        Predicts the semantic roles of the supplied sentence tokens and returns a dictionary
-        with the results.
-
-        Parameters
-        ----------
-        tokenized_sentence, ``List[str]``
-            The sentence tokens to parse via semantic role labeling.
-
-        Returns
-        -------
-        A dictionary representation of the semantic roles in the sentence.
-        """
         spacy_doc = Doc(self._tokenizer.spacy.vocab, words=tokenized_sentence)
         for pipe in filter(None, self._tokenizer.spacy.pipeline):
             pipe[1](spacy_doc)
@@ -117,51 +77,12 @@ class SRL(SemanticRoleLabelerPredictor):
         return instances
 
     def _sentence_to_srl_instances(self, json_dict: JsonDict) -> List[Instance]:
-        """
-        The SRL model has a slightly different API from other models, as the model is run
-        forward for every verb in the sentence. This means that for a single sentence, we need
-        to generate a ``List[Instance]``, where the length of this list corresponds to the number
-        of verbs in the sentence. Additionally, all of these verbs share the same return dictionary
-        after being passed through the model (as really we care about all the frames of the sentence
-        together, rather than separately).
-
-        Parameters
-        ----------
-        json_dict : ``JsonDict``, required.
-            JSON that looks like ``{"sentence": "..."}``.
-
-        Returns
-        -------
-        instances : ``List[Instance]``
-            One instance per verb.
-        """
         sentence = json_dict["sentence"]
         tokens = self._tokenizer.split_words(sentence)
         return self.tokens_to_instances(tokens)
 
     @overrides
     def predict_batch_json(self, inputs: List[JsonDict]) -> List[JsonDict]:
-        """
-        Expects JSON that looks like ``[{"sentence": "..."}, {"sentence": "..."}, ...]``
-        and returns JSON that looks like
-
-        .. code-block:: js
-
-            [
-                {"words": [...],
-                 "verbs": [
-                    {"verb": "...", "description": "...", "tags": [...]},
-                    ...
-                    {"verb": "...", "description": "...", "tags": [...]},
-                ]},
-                {"words": [...],
-                 "verbs": [
-                    {"verb": "...", "description": "...", "tags": [...]},
-                    ...
-                    {"verb": "...", "description": "...", "tags": [...]},
-                ]}
-            ]
-        """
         # For SRL, we have more instances than sentences, but the user specified
         # a batch size with respect to the number of sentences passed, so we respect
         # that here by taking the batch size which we use to be the number of sentences
@@ -179,7 +100,12 @@ class SRL(SemanticRoleLabelerPredictor):
 
         if not flattened_instances:
             output = [
-                {"verbs": [], "words": self._tokenizer.split_words(x["sentence"])}
+                {
+                    "verbs": [],
+                    "lemmas": [],
+                    "poses": [],
+                    "words": self._tokenizer.split_words(x["sentence"]),
+                }
                 for x in inputs
             ]
             return sanitize(output)
@@ -218,6 +144,8 @@ class SRL(SemanticRoleLabelerPredictor):
                 frame = output["frame_tags"]
                 description = self.make_srl_string(words, tags, frame)
                 return_dicts[sentence_index]["words"] = words
+                return_dicts[sentence_index]["poses"] = output["poses"]
+                return_dicts[sentence_index]["words"] = output["lemmas"]
                 return_dicts[sentence_index]["verbs"].append(
                     {
                         "verb": output["verb"],
@@ -233,11 +161,17 @@ class SRL(SemanticRoleLabelerPredictor):
     def predict_instances(self, instances: List[Instance]) -> JsonDict:
         outputs = self._model.forward_on_instances(instances)
 
-        results = {"verbs": [], "words": outputs[0]["words"]}
+        results = {
+            "verbs": [],
+            "words": outputs[0]["words"],
+            "poses": outputs[0]["poses"],
+            "lemmas": outputs[0]["lemmas"],
+        }
         for output in outputs:
+            words = output["words"]
             tags = output["tags"]
             frame = output["frame_tags"]
-            description = self.make_srl_string(output["words"], tags, frame)
+            description = self.make_srl_string(words, tags, frame)
             results["verbs"].append(
                 {
                     "verb": output["verb"],
@@ -251,24 +185,16 @@ class SRL(SemanticRoleLabelerPredictor):
 
     @overrides
     def predict_json(self, inputs: JsonDict) -> JsonDict:
-        """
-        Expects JSON that looks like ``{"sentence": "..."}``
-        and returns JSON that looks like
-
-        .. code-block:: js
-
-            {"words": [...],
-             "verbs": [
-                {"verb": "...", "description": "...", "tags": [...]},
-                ...
-                {"verb": "...", "description": "...", "tags": [...]},
-            ]}
-        """
         instances = self._sentence_to_srl_instances(inputs)
 
         if not instances:
             return sanitize(
-                {"verbs": [], "words": self._tokenizer.split_words(inputs["sentence"])}
+                {
+                    "verbs": [],
+                    "lemmas": [],
+                    "poses": [],
+                    "words": self._tokenizer.split_words(inputs["sentence"]),
+                }
             )
 
         return self.predict_instances(instances)

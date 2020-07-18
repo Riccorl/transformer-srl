@@ -312,6 +312,8 @@ class SrlReaderVerbatlas(DatasetReader):
             verb = tokens[verb_index].text
 
         metadata_dict["words"] = [x.text for x in tokens]
+        metadata_dict["poses"] = [x.pos_ for x in tokens]
+        metadata_dict["lemmas"] = [x.lemma_ for x in tokens]
         metadata_dict["verb"] = verb
         metadata_dict["verb_index"] = verb_index
 

@@ -163,7 +163,10 @@ class SrlBertVerbatlas(Model):
         words, verbs, offsets = zip(
             *[(x["words"], x["verb"], x["offsets"]) for x in metadata]
         )
+        poses, lemmas = zip(*[(x["poses"], x["lemmas"]) for x in metadata])
         output_dict["words"] = list(words)
+        output_dict["poses"] = list(poses)
+        output_dict["lemmas"] = list(lemmas)
         output_dict["verb"] = list(verbs)
         output_dict["wordpiece_offsets"] = list(offsets)
 
