@@ -17,7 +17,7 @@ CONFIG="$PROJECT/training_config/srl_bert_base.jsonnet"
 free_mem=$(nvidia-smi --query-gpu=memory.free --format=csv -i 1 | grep -Eo [0-9]+)
 
 echo "$free_mem MB"
-while [ $free_mem -lt 10000 ]; do
+while [ "$free_mem" -lt 10000 ]; do
     free_mem=$(nvidia-smi --query-gpu=memory.free --format=csv -i 1 | grep -Eo [0-9]+)
     sleep 5
 done

@@ -170,12 +170,8 @@ class SrlReaderVerbatlas(DatasetReader):
         self._token_indexers = token_indexers or {"tokens": SingleIdTokenIndexer()}
         self._domain_identifier = domain_identifier
 
-        if bert_model_name is not None:
-            self.bert_tokenizer = BertTokenizer.from_pretrained(bert_model_name)
-            self.lowercase_input = "uncased" in bert_model_name
-        else:
-            self.bert_tokenizer = None
-            self.lowercase_input = False
+        self.bert_tokenizer = BertTokenizer.from_pretrained(bert_model_name)
+        self.lowercase_input = "uncased" in bert_model_name
 
     def _wordpiece_tokenize_input(
         self, tokens: List[str]
@@ -258,16 +254,6 @@ class SrlReaderVerbatlas(DatasetReader):
                             tokens, verb_indicator, frames, tags
                         )
 
-            # if not sentence.srl_frames:
-            #     # Sentence contains no predicates.
-            #     tags = ["O" for _ in tokens]
-            #     verb_label = [0 for _ in tokens]
-            #     yield self.text_to_instance(tokens, verb_label, tags)
-            # else:
-            #     for (_, tags) in sentence.srl_frames:
-            #         verb_indicator = [1 if label[-2:] == "-V" else 0 for label in tags]
-            #         yield self.text_to_instance(tokens, verb_indicator, tags)
-
     @staticmethod
     def _ontonotes_subset(
         ontonotes_reader: Ontonotes, file_path: str, domain_identifier: str
@@ -295,33 +281,28 @@ class SrlReaderVerbatlas(DatasetReader):
         """
         # pylint: disable=arguments-differ
         metadata_dict: Dict[str, Any] = {}
-        if self.bert_tokenizer is not None:
-            wordpieces, offsets, start_offsets = self._wordpiece_tokenize_input(
-                [t.text for t in tokens]
-            )
-            new_verbs = _convert_verb_indices_to_wordpiece_indices(verb_label, offsets)
-            frame_indicator = _convert_frames_indices_to_wordpiece_indices(
-                verb_label, offsets, True
-            )
-            metadata_dict["offsets"] = start_offsets
-            # In order to override the indexing mechanism, we need to set the `text_id`
-            # attribute directly. This causes the indexing to use this id.
-            text_field = TextField(
-                [Token(t, text_id=self.bert_tokenizer.vocab[t]) for t in wordpieces],
-                token_indexers=self._token_indexers,
-            )
-            verb_indicator = SequenceLabelField(new_verbs, text_field)
-            frame_indicator = SequenceLabelField(frame_indicator, text_field)
+        wordpieces, offsets, start_offsets = self._wordpiece_tokenize_input(
+            [t.text for t in tokens]
+        )
+        new_verbs = _convert_verb_indices_to_wordpiece_indices(verb_label, offsets)
+        frame_indicator = _convert_frames_indices_to_wordpiece_indices(
+            verb_label, offsets, True
+        )
+        metadata_dict["offsets"] = start_offsets
+        # In order to override the indexing mechanism, we need to set the `text_id`
+        # attribute directly. This causes the indexing to use this id.
+        text_field = TextField(
+            [Token(t, text_id=self.bert_tokenizer.vocab[t]) for t in wordpieces],
+            token_indexers=self._token_indexers,
+        )
+        verb_indicator = SequenceLabelField(new_verbs, text_field)
+        frame_indicator = SequenceLabelField(frame_indicator, text_field)
 
-        else:
-            text_field = TextField(tokens, token_indexers=self._token_indexers)
-            verb_indicator = SequenceLabelField(verb_label, text_field)
-            frame_indicator = SequenceLabelField(verb_label, text_field)
-
-        fields: Dict[str, Field] = {}
-        fields["tokens"] = text_field
-        fields["verb_indicator"] = verb_indicator
-        fields["frame_indicator"] = frame_indicator
+        fields: Dict[str, Field] = {
+            "tokens": text_field,
+            "verb_indicator": verb_indicator,
+            "frame_indicator": frame_indicator,
+        }
 
         if all([x == 0 for x in verb_label]):
             verb = None
@@ -335,24 +316,15 @@ class SrlReaderVerbatlas(DatasetReader):
         metadata_dict["verb_index"] = verb_index
 
         if tags:
-            if self.bert_tokenizer is not None:
-                new_tags = _convert_tags_to_wordpiece_tags(tags, offsets)
-                new_frames = _convert_frames_indices_to_wordpiece_indices(
-                    frames, offsets
-                )
-                fields["tags"] = SequenceLabelField(
-                    new_tags, text_field, label_namespace="roles_labels"
-                )
-                fields["frame_tags"] = SequenceLabelField(
-                    new_frames, text_field, label_namespace="frames_labels"
-                )
-            else:
-                fields["tags"] = SequenceLabelField(
-                    tags, text_field, label_namespace="roles_labels"
-                )
-                fields["frame_tags"] = SequenceLabelField(
-                    frames, text_field, label_namespace="frames_labels"
-                )
+            new_tags = _convert_tags_to_wordpiece_tags(tags, offsets)
+            new_frames = _convert_frames_indices_to_wordpiece_indices(frames, offsets)
+            fields["tags"] = SequenceLabelField(
+                new_tags, text_field, label_namespace="roles_labels"
+            )
+            fields["frame_tags"] = SequenceLabelField(
+                new_frames, text_field, label_namespace="frames_labels"
+            )
+
             metadata_dict["gold_tags"] = tags
             metadata_dict["gold_frame_tags"] = frames
 
