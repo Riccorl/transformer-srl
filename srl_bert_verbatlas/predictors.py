@@ -31,7 +31,7 @@ class SRL(SemanticRoleLabelerPredictor):
         instances = self.tokens_to_instances(tokens)
 
         if not instances:
-            return sanitize({"verbs": [], "words": tokens})
+            return sanitize({"verbs": [], "lemmas": [], "poses": [], "words": tokens})
 
         return self.predict_instances(instances)
 
@@ -123,7 +123,9 @@ class SRL(SemanticRoleLabelerPredictor):
             outputs.extend(self._model.forward_on_instances(batch))
 
         verbs_per_sentence = [len(sent) for sent in instances_per_sentence]
-        return_dicts: List[JsonDict] = [{"verbs": []} for x in inputs]
+        return_dicts: List[JsonDict] = [
+            {"verbs": [], "lemmas": [], "poses": [],} for x in inputs
+        ]
 
         output_index = 0
         for sentence_index, verb_count in enumerate(verbs_per_sentence):
