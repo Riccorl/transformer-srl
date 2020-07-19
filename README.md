@@ -13,19 +13,19 @@ Semantic Role Labeling based on [AllenNLP implementation](https://demo.allennlp.
 With `bert-base-cased`:
 ```
 # Dev set
-- F1 arguments 86.2
+- F1 arguments 87.2
 - F1 predicates 94.2
 # Test set
-- F1 arguments 86.1
+- F1 arguments 87.1
 - F1 predicates 94.9
 ```
 
 With `bert-base-multilingual-cased`:
 ```
 # Dev set
-- F1 arguments 87.2
+- F1 arguments 86.2
 - F1 predicates 94.2
 # Test set
-- F1 arguments 87.1
+- F1 arguments 86.1
 - F1 predicates 94.9
 ```
