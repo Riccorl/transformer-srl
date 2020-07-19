@@ -1,0 +1,15 @@
+name: Publish srl-bert-verbatlas to PyPI and TestPyPI
+
+on: push
+
+jobs:
+  build-n-publish:
+    name: Build and publish srl-bert-verbatlas to PyPI and TestPyPI
+    runs-on: ubuntu-18.04
+    steps:
+      - uses: actions/checkout@v2
+      - uses: casperdcl/deploy-pypi@v1
+        if: github.event_name == 'push'
+        with:
+          password: ${{ secrets.TEST_PYPI_PASSWORD }}
+          build: true
