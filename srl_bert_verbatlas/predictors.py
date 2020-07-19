@@ -66,7 +66,8 @@ class SRL(SemanticRoleLabelerPredictor):
         )
 
     def tokens_to_instances(self, tokens):
-        tokens = tokens[:500]
+        # TODO: check with new transformers
+        tokens = tokens[:400]
         words = [token.text for token in tokens]
         instances: List[Instance] = []
         for i, word in enumerate(tokens):
