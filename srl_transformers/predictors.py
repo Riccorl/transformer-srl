@@ -143,3 +143,83 @@ class SrlTransformersPredictor(SemanticRoleLabelerPredictor):
             results["verbs"].append(verb_dict)
 
         return sanitize(results)
+
+    @classmethod
+    def from_path(
+        cls,
+        archive_path: str,
+        predictor_name: str = None,
+        cuda_device: int = -1,
+        language: str = "en_core_web_sm",
+        dataset_reader_to_load: str = "validation",
+    ) -> "SrlTransformersPredictor":
+        """
+        Instantiate a :class:`Predictor` from an archive path.
+
+        If you need more detailed configuration options, such as overrides,
+        please use `from_archive`.
+
+        Parameters
+        ----------
+        archive_path: ``str``
+            The path to the archive.
+        predictor_name: ``str``, optional (default=None)
+            Name that the predictor is registered as, or None to use the
+            predictor associated with the model.
+        cuda_device: ``int``, optional (default=-1)
+            If `cuda_device` is >= 0, the model will be loaded onto the
+            corresponding GPU. Otherwise it will be loaded onto the CPU.
+        dataset_reader_to_load: ``str``, optional (default="validation")
+            Which dataset reader to load from the archive, either "train" or
+            "validation".
+
+        Returns
+        -------
+        A Predictor instance.
+        """
+        return SrlTransformersPredictor.from_archive(
+            load_archive(archive_path, cuda_device=cuda_device),
+            predictor_name,
+            dataset_reader_to_load=dataset_reader_to_load,
+        )
+
+    @classmethod
+    def from_archive(
+        cls,
+        archive: Archive,
+        predictor_name: str = None,
+        language: str = "en_core_web_sm",
+        dataset_reader_to_load: str = "validation",
+    ) -> "SrlTransformersPredictor":
+        """
+        Instantiate a :class:`Predictor` from an :class:`~allennlp.models.archival.Archive`;
+        that is, from the result of training a model. Optionally specify which `Predictor`
+        subclass; otherwise, the default one for the model will be used. Optionally specify
+        which :class:`DatasetReader` should be loaded; otherwise, the validation one will be used
+        if it exists followed by the training dataset reader.
+        """
+        # Duplicate the config so that the config inside the archive doesn't get consumed
+        config = archive.config.duplicate()
+
+        if not predictor_name:
+            model_type = config.get("model").get("type")
+            if not model_type in DEFAULT_PREDICTORS:
+                raise ConfigurationError(
+                    f"No default predictor for model type {model_type}.\n"
+                    f"Please specify a predictor explicitly."
+                )
+            predictor_name = DEFAULT_PREDICTORS[model_type]
+
+        if (
+            dataset_reader_to_load == "validation"
+            and "validation_dataset_reader" in config
+        ):
+            dataset_reader_params = config["validation_dataset_reader"]
+        else:
+            dataset_reader_params = config["dataset_reader"]
+        dataset_reader = DatasetReader.from_params(dataset_reader_params)
+
+        model = archive.model
+        model.eval()
+
+        return Predictor.by_name(predictor_name)(model, dataset_reader, language)
