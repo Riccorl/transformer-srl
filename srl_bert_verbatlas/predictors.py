@@ -66,9 +66,9 @@ class SRL(SemanticRoleLabelerPredictor):
         )
 
     def tokens_to_instances(self, tokens):
+        tokens = tokens[:500]
         words = [token.text for token in tokens]
         instances: List[Instance] = []
-        words = words[:500]
         for i, word in enumerate(tokens):
             if word.pos_ == "VERB":
                 verb_labels = [0 for _ in words]
