@@ -4,14 +4,14 @@ with open("README.md", "r") as fh:
     long_description = fh.read()
 
 setuptools.setup(
-    name="srl-bert-verbatlas",  # Replace with your own username
-    version="0.9.6.5",
+    name="srl_transformers",  # Replace with your own username
+    version="0.9",
     author="Riccardo Orlando",
     author_email="orlandoricc@gmail.com",
-    description="SRL Bert model trained with VerbAtlas inventory",
+    description="SRL Transformer model",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/Riccorl/srl-bert-verbatlas",
+    url="https://github.com/Riccorl/srl_transformers",
     packages=setuptools.find_packages(),
     classifiers=[
         "Programming Language :: Python :: 3",
@@ -19,7 +19,8 @@ setuptools.setup(
         "Operating System :: OS Independent",
     ],
     install_requires=[
-        "allennlp==0.9"
+        "allennlp>=1.1.0rc2.dev20200717",
+        "allennlp_models>=1.1.0rc2.dev20200717"
     ],
     python_requires=">=3.6",
 )
