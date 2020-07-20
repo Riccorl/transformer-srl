@@ -22,38 +22,9 @@ class SrlTransformersPredictor(SemanticRoleLabelerPredictor):
 
     @staticmethod
     def make_srl_string(words: List[str], tags: List[str], frame: str) -> str:
-        window = []
-        chunk = []
-
-        for (token, tag) in zip(words, tags):
-            if tag.startswith("I-"):
-                chunk.append(token)
-            else:
-                if chunk:
-                    window.append("[" + " ".join(chunk) + "]")
-                    chunk = []
-
-                if tag.startswith("B-"):
-                    tag = tag.replace("V", frame)
-                    chunk.append(tag[2:] + ": " + token)
-                elif tag == "O":
-                    window.append(token)
-
-        if chunk:
-            window.append("[" + " ".join(chunk) + "]")
-
-        return " ".join(window)
-
-    def tokens_to_instances(self, tokens):
-        words = [token.text for token in tokens]
-        instances: List[Instance] = []
-        for i, word in enumerate(tokens):
-            if word.pos_ == "VERB":
-                verb_labels = [0 for _ in words]
-                verb_labels[i] = 1
-                instance = self._dataset_reader.text_to_instance(tokens, verb_labels)
-                instances.append(instance)
-        return instances
+        srl_string = super().make_srl_string(words, tags)
+        srl_string = srl_string.replace("B-V", "B-" + frame)
+        return srl_string
 
     @overrides
     def predict_batch_json(self, inputs: List[JsonDict]) -> List[JsonDict]:
@@ -112,6 +83,7 @@ class SrlTransformersPredictor(SemanticRoleLabelerPredictor):
                     "description": description,
                     "tags": tags,
                     "frame": frame,
+                    "lemma": output["lemma"],
                 }
                 return_dicts[sentence_index]["verbs"].append(verb_dict)
                 output_index += 1
@@ -131,6 +103,7 @@ class SrlTransformersPredictor(SemanticRoleLabelerPredictor):
                 "description": description,
                 "tags": tags,
                 "frame": frame,
+                "lemma": output["lemma"],
             }
             results["verbs"].append(verb_dict)
 
@@ -147,38 +120,6 @@ class SrlTransformersPredictor(SemanticRoleLabelerPredictor):
         import_plugins: bool = True,
         language: str = "en_core_web_sm",
     ) -> "Predictor":
-        """
-        Instantiate a `Predictor` from an archive path.
-
-        If you need more detailed configuration options, such as overrides,
-        please use `from_archive`.
-
-        # Parameters
-
-        archive_path : `str`
-            The path to the archive.
-        predictor_name : `str`, optional (default=`None`)
-            Name that the predictor is registered as, or None to use the
-            predictor associated with the model.
-        cuda_device : `int`, optional (default=`-1`)
-            If `cuda_device` is >= 0, the model will be loaded onto the
-            corresponding GPU. Otherwise it will be loaded onto the CPU.
-        dataset_reader_to_load : `str`, optional (default=`"validation"`)
-            Which dataset reader to load from the archive, either "train" or
-            "validation".
-        frozen : `bool`, optional (default=`True`)
-            If we should call `model.eval()` when building the predictor.
-        import_plugins : `bool`, optional (default=`True`)
-            If `True`, we attempt to import plugins before loading the predictor.
-            This comes with additional overhead, but means you don't need to explicitly
-            import the modules that your predictor depends on as long as those modules
-            can be found by `allennlp.common.plugins.import_plugins()`.
-
-        # Returns
-
-        `Predictor`
-            A Predictor instance.
-        """
         if import_plugins:
             plugins.import_plugins()
         return SrlTransformersPredictor.from_archive(
@@ -198,15 +139,6 @@ class SrlTransformersPredictor(SemanticRoleLabelerPredictor):
         frozen: bool = True,
         language: str = "en_core_web_sm",
     ) -> "Predictor":
-        """
-        Instantiate a `Predictor` from an [`Archive`](../models/archival.md);
-        that is, from the result of training a model. Optionally specify which `Predictor`
-        subclass; otherwise, we try to find a corresponding predictor in `DEFAULT_PREDICTORS`, or if
-        one is not found, the base class (i.e. `Predictor`) will be used. Optionally specify
-        which [`DatasetReader`](../data/dataset_readers/dataset_reader.md) should be loaded;
-        otherwise, the validation one will be used if it exists followed by the training dataset reader.
-        Optionally specify if the loaded model should be frozen, meaning `model.eval()` will be called.
-        """
         # Duplicate the config so that the config inside the archive doesn't get consumed
         config = archive.config.duplicate()
 
