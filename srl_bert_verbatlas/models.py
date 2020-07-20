@@ -22,7 +22,7 @@ from pytorch_pretrained_bert.modeling import BertModel
 from torch.nn.modules import Linear, Dropout
 
 
-LEMMA_FRAME_PATH = pathlib.Path(__file__).resolve().parent / "resources" / "lemma2frame.csv"
+LEMMA_FRAME_PATH = pathlib.Path(__file__).resolve().parent.parent / "resources" / "lemma2frame.csv"
 
 
 def read_dictionary(filename: pathlib.Path) -> Dict:
