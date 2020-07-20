@@ -7,6 +7,7 @@ from allennlp.predictors.predictor import Predictor
 from allennlp.predictors.semantic_role_labeler import SemanticRoleLabelerPredictor
 from overrides import overrides
 from spacy.tokens import Doc
+from allennlp.models.archival import Archive, load_archive
 
 
 @Predictor.register("srl_verbatlas")
