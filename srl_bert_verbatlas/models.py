@@ -24,7 +24,6 @@ from torch.nn.modules import Linear, Dropout
 
 LEMMA_FRAME_PATH = pathlib.Path(__file__).resolve().parent / "resources" / "lemma2frame.csv"
 
-print(LEMMA_FRAME_PATH)
 
 def read_dictionary(filename: pathlib.Path) -> Dict:
     """
