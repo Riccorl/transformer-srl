@@ -250,9 +250,7 @@ class SrlReaderVerbatlas(DatasetReader):
                         for f, v in zip(sentence.predicate_framenet_ids, verb_indicator)
                     ]
                     if not all(v == 0 for v in verb_indicator):
-                        yield self.text_to_instance(
-                            tokens, verb_indicator, frames, tags
-                        )
+                        yield self.text_to_instance(tokens, verb_indicator, frames, tags)
 
     @staticmethod
     def _ontonotes_subset(
@@ -285,9 +283,7 @@ class SrlReaderVerbatlas(DatasetReader):
             [t.text for t in tokens]
         )
         new_verbs = _convert_verb_indices_to_wordpiece_indices(verb_label, offsets)
-        frame_indicator = _convert_frames_indices_to_wordpiece_indices(
-            verb_label, offsets, True
-        )
+        frame_indicator = _convert_frames_indices_to_wordpiece_indices(verb_label, offsets, True)
         metadata_dict["offsets"] = start_offsets
         # In order to override the indexing mechanism, we need to set the `text_id`
         # attribute directly. This causes the indexing to use this id.

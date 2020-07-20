@@ -69,9 +69,7 @@ class SrlBertVerbatlas(Model):
         else:
             self.span_metric = None
         self.f1_frame_metric = FBetaMeasure(average="micro")
-        self.tag_projection_layer = Linear(
-            self.bert_model.config.hidden_size, self.num_classes
-        )
+        self.tag_projection_layer = Linear(self.bert_model.config.hidden_size, self.num_classes)
         self.frame_projection_layer = Linear(
             self.bert_model.config.hidden_size, self.frame_num_classes
         )
@@ -160,9 +158,7 @@ class SrlBertVerbatlas(Model):
         # so that we can crop the sequences to remove padding
         # when we do viterbi inference in self.decode.
         # We add in the offsets here so we can compute the un-wordpieced tags.
-        words, verbs, offsets = zip(
-            *[(x["words"], x["verb"], x["offsets"]) for x in metadata]
-        )
+        words, verbs, offsets = zip(*[(x["words"], x["verb"], x["offsets"]) for x in metadata])
         poses, lemmas = zip(*[(x["poses"], x["lemmas"]) for x in metadata])
         output_dict["words"] = list(words)
         output_dict["poses"] = list(poses)
@@ -177,31 +173,23 @@ class SrlBertVerbatlas(Model):
             # compute frame loss
             frame_tags_filtered = frame_tags[frame_indicator == 1]
             frame_loss = self.frame_criterion(frame_logits, frame_tags_filtered)
-            if (
-                not self.ignore_span_metric
-                and self.span_metric is not None
-                and not self.training
-            ):
+            if not self.ignore_span_metric and self.span_metric is not None and not self.training:
                 batch_verb_indices = [
                     example_metadata["verb_index"] for example_metadata in metadata
                 ]
-                batch_sentences = [
-                    example_metadata["words"] for example_metadata in metadata
-                ]
+                batch_sentences = [example_metadata["words"] for example_metadata in metadata]
                 # Get the BIO tags from decode()
                 # TODO (nfliu): This is kind of a hack, consider splitting out part
                 # of decode() to a separate function.
                 batch_bio_predicted_tags = self.decode(output_dict).pop("tags")
                 batch_conll_predicted_tags = [
-                    convert_bio_tags_to_conll_format(tags)
-                    for tags in batch_bio_predicted_tags
+                    convert_bio_tags_to_conll_format(tags) for tags in batch_bio_predicted_tags
                 ]
                 batch_bio_gold_tags = [
                     example_metadata["gold_tags"] for example_metadata in metadata
                 ]
                 batch_conll_gold_tags = [
-                    convert_bio_tags_to_conll_format(tags)
-                    for tags in batch_bio_gold_tags
+                    convert_bio_tags_to_conll_format(tags) for tags in batch_bio_gold_tags
                 ]
                 self.span_metric(
                     batch_verb_indices,
@@ -221,8 +209,7 @@ class SrlBertVerbatlas(Model):
         frame_predictions = output_dict["frame_probabilities"]
         frame_predicted = frame_predictions.argmax(dim=-1).cpu().data.numpy()
         output_dict["frame_tags"] = [
-            self.vocab.get_token_from_index(f, namespace="frames_labels")
-            for f in frame_predicted
+            self.vocab.get_token_from_index(f, namespace="frames_labels") for f in frame_predicted
         ]
         return output_dict
 
@@ -246,14 +233,11 @@ class SrlBertVerbatlas(Model):
         correspond to, e.g, I-V, which would not be allowed as it is not preceeded by a B tag.
         """
         all_predictions = output_dict["class_probabilities"]
-        sequence_lengths = get_lengths_from_binary_sequence_mask(
-            output_dict["mask"]
-        ).data.tolist()
+        sequence_lengths = get_lengths_from_binary_sequence_mask(output_dict["mask"]).data.tolist()
 
         if all_predictions.dim() == 3:
             predictions_list = [
-                all_predictions[i].detach().cpu()
-                for i in range(all_predictions.size(0))
+                all_predictions[i].detach().cpu() for i in range(all_predictions.size(0))
             ]
         else:
             predictions_list = [all_predictions]
@@ -296,9 +280,7 @@ class SrlBertVerbatlas(Model):
             # This can be a lot of metrics, as there are 3 per class.
             # we only really care about the overall metrics, so we filter for them here.
             metric_dict_filtered = {
-                x.split("-")[0] + "_role": y
-                for x, y in metric_dict.items()
-                if "overall" in x
+                x.split("-")[0] + "_role": y for x, y in metric_dict.items() if "overall" in x
             }
             frame_metric_dict = {x + "_frame": y for x, y in frame_metric_dict.items()}
             return {**metric_dict_filtered, **frame_metric_dict}
