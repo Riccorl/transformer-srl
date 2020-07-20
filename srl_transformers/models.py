@@ -230,10 +230,13 @@ class SrlTransformers(SrlBert):
         frame_probabilities = output_dict["frame_probabilities"].cpu().data.numpy()
         lemmas = output_dict["lemmas"]
         candidate_labels = [self.lemm_frame_dict.get(l, []) for l in lemmas]
+        # clear candidates from unknowns
+        label_set = set(k for k in self.vocab.get_token_to_index_vocabulary("frames_labels").keys())
         candidate_labels_ids = [
             self.vocab.get_token_index(l, namespace="frames_labels")
             for cl in candidate_labels
             for l in cl
+            if l in label_set
         ]
         frame_predictions = []
         for cl, fp in zip(candidate_labels_ids, frame_probabilities):
