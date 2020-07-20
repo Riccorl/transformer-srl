@@ -199,7 +199,7 @@ class SrlTransformers(SrlBert):
                 ]
                 batch_sentences = [example_metadata["words"] for example_metadata in metadata]
                 # Get the BIO tags from make_output_human_readable()
-                batch_bio_predicted_tags = self.make_output_human_readable(output_dict).pop("tags")
+                batch_bio_predicted_tags = self.make_output_human_readable(output_dict, False).pop("tags")
                 from allennlp_models.structured_prediction.models.srl import (
                     convert_bio_tags_to_conll_format,
                 )
@@ -225,9 +225,19 @@ class SrlTransformers(SrlBert):
             output_dict["loss"] = (role_loss + frame_loss) / 2
         return output_dict
 
-    def decode_frames(self, output_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+    def decode_frames(
+        self, output_dict: Dict[str, torch.Tensor], restrict: bool = True
+    ) -> Dict[str, torch.Tensor]:
         # frame prediction
-        frame_probabilities = output_dict["frame_probabilities"].cpu().data.numpy()
+        frame_probabilities = output_dict["frame_probabilities"]
+        if not restrict:
+            frame_predictions = frame_probabilities.argmax(dim=-1).cpu().data.numpy()
+            output_dict["frame_tags"] = [
+                self.vocab.get_token_from_index(f, namespace="frames_labels")
+                for f in frame_predictions
+            ]
+            return output_dict
+        frame_probabilities = frame_probabilities.cpu().data.numpy()
         lemmas = output_dict["lemmas"]
         candidate_labels = [self.lemm_frame_dict.get(l, []) for l in lemmas]
         # clear candidates from unknowns
@@ -254,10 +264,10 @@ class SrlTransformers(SrlBert):
 
     @overrides
     def make_output_human_readable(
-        self, output_dict: Dict[str, torch.Tensor]
+        self, output_dict: Dict[str, torch.Tensor], restrict: bool = True
     ) -> Dict[str, torch.Tensor]:
         output_dict = super().make_output_human_readable(output_dict)
-        self.decode_frames(output_dict)
+        self.decode_frames(output_dict, restrict)
         return output_dict
 
     @overrides
