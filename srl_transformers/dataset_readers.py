@@ -61,9 +61,7 @@ def _convert_tags_to_wordpiece_tags(tags: List[str], offsets: List[int]) -> List
     return ["O"] + new_tags + ["O"]
 
 
-def _convert_verb_indices_to_wordpiece_indices(
-    verb_indices: List[int], offsets: List[int]
-):
+def _convert_verb_indices_to_wordpiece_indices(verb_indices: List[int], offsets: List[int]):
     """
     Converts binary verb indicators to account for a wordpiece tokenizer,
     extending/modifying BIO tags where appropriate to deal with words which
@@ -219,13 +217,15 @@ class SrlTransformersReader(SrlReader):
         for token in tokens:
             if self.lowercase_input:
                 token = token.lower()
-            word_pieces = self.bert_tokenizer.wordpiece_tokenizer.tokenize(token)
+            word_pieces = self.bert_tokenizer.tokenize(token)
             start_offsets.append(cumulative + 1)
             cumulative += len(word_pieces)
             end_offsets.append(cumulative)
             word_piece_tokens.extend(word_pieces)
 
-        wordpieces = ["[CLS]"] + word_piece_tokens + ["[SEP]"]
+        wordpieces = (
+            [self.bert_tokenizer.cls_token] + word_piece_tokens + [self.bert_tokenizer.sep_token]
+        )
 
         return wordpieces, end_offsets, start_offsets
 
@@ -253,9 +253,7 @@ class SrlTransformersReader(SrlReader):
                         for f, v in zip(sentence.predicate_framenet_ids, verb_indicator)
                     ]
                     if not all(v == 0 for v in verb_indicator):
-                        yield self.text_to_instance(
-                            tokens, verb_indicator, frames, tags
-                        )
+                        yield self.text_to_instance(tokens, verb_indicator, frames, tags)
 
     def text_to_instance(  # type: ignore
         self,
@@ -275,9 +273,7 @@ class SrlTransformersReader(SrlReader):
             [t.text for t in tokens]
         )
         new_verbs = _convert_verb_indices_to_wordpiece_indices(verb_label, offsets)
-        frame_indicator = _convert_frames_indices_to_wordpiece_indices(
-            verb_label, offsets, True
-        )
+        frame_indicator = _convert_frames_indices_to_wordpiece_indices(verb_label, offsets, True)
         metadata_dict["offsets"] = start_offsets
         # In order to override the indexing mechanism, we need to set the `text_id`
         # attribute directly. This causes the indexing to use this id.
