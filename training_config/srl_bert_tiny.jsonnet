@@ -34,8 +34,6 @@
 
         "learning_rate_scheduler": {
             "type": "slanted_triangular",
-            "num_epochs": 50,
-            "num_steps_per_epoch": 8829,
         },
         "checkpointer": {
             "num_serialized_models_to_keep": 2,

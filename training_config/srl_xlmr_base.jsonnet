@@ -1,7 +1,7 @@
 {
     "dataset_reader": {
       "type": "srl_transformers",
-      "bert_model_name": "bert-base-cased",
+      "bert_model_name": "xlm-roberta-base",
 
     },
 
@@ -18,7 +18,7 @@
     "model": {
         "type": "srl_transformers",
         "embedding_dropout": 0.1,
-        "bert_model": "bert-base-cased",
+        "bert_model": "xlm-roberta-base",
     },
 
     "trainer": {

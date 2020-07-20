@@ -1,5 +1,8 @@
 from typing import Dict, List, Any, Union
+import os
+from collections import defaultdict
 
+import numpy as np
 import torch
 import torch.nn.functional as F
 from allennlp.data import TextFieldTensors, Vocabulary
@@ -16,6 +19,24 @@ from allennlp_models.structured_prediction.metrics.srl_eval_scorer import (
 from overrides import overrides
 from torch.nn.modules import Linear, Dropout
 from transformers import AutoModel
+
+LEMMA_FRAME = os.path.abspath(
+    os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "resources", "lemma2frame.csv")
+)
+
+
+def read_dictionary(filename: str) -> Dict:
+    """
+    Open a dictionary from file, in the format key -> value
+    :param filename: file to read.
+    :return: a dictionary.
+    """
+    dictionary = defaultdict(list)
+    with open(filename) as file:
+        for l in file:
+            k, *v = l.split()
+            dictionary[k] += v
+    return dictionary
 
 
 @Model.register("srl_transformers")
@@ -50,8 +71,10 @@ class SrlTransformers(SrlBert):
         srl_eval_path: str = DEFAULT_SRL_EVAL_PATH,
         **kwargs,
     ) -> None:
+        # bypass SrlBert constructor
         Model.__init__(self, vocab, **kwargs)
-
+        # load (lemma, frames) dictionary
+        self.lemm_frame_dict = read_dictionary(LEMMA_FRAME)
         if isinstance(bert_model, str):
             self.bert_model = AutoModel.from_pretrained(bert_model)
         else:
@@ -156,7 +179,9 @@ class SrlTransformers(SrlBert):
         }
         # We add in the offsets here so we can compute the un-wordpieced tags.
         words, verbs, offsets = zip(*[(x["words"], x["verb"], x["offsets"]) for x in metadata])
+        lemmas = [l for x in metadata for l in x["lemmas"]]
         output_dict["words"] = list(words)
+        output_dict["lemmas"] = list(lemmas)
         output_dict["verb"] = list(verbs)
         output_dict["wordpiece_offsets"] = list(offsets)
 
@@ -202,10 +227,25 @@ class SrlTransformers(SrlBert):
 
     def decode_frames(self, output_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         # frame prediction
-        frame_predictions = output_dict["frame_probabilities"]
-        frame_predicted = frame_predictions.argmax(dim=-1).cpu().data.numpy()
+        frame_probabilities = output_dict["frame_probabilities"].cpu().data.numpy()
+        lemmas = output_dict["lemmas"]
+        candidate_labels = [self.lemm_frame_dict.get(l, []) for l in lemmas]
+        candidate_labels_ids = [
+            self.vocab.get_token_index(l, namespace="frames_labels")
+            for cl in candidate_labels
+            for l in cl
+        ]
+        frame_predictions = []
+        for cl, fp in zip(candidate_labels_ids, frame_probabilities):
+            # restrict candidates from verbatlas inventory
+            fp_candidates = np.take(fp, cl)
+            if fp_candidates.size > 0:
+                frame_predictions.append(fp_candidates.argmax(dim=-1))
+            else:
+                frame_predictions.append(fp.argmax(dim=-1))
+
         output_dict["frame_tags"] = [
-            self.vocab.get_token_from_index(f, namespace="frames_labels") for f in frame_predicted
+            self.vocab.get_token_from_index(f, namespace="frames_labels") for f in frame_predictions
         ]
         return output_dict
 

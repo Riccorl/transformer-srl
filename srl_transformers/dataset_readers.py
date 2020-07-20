@@ -251,14 +251,18 @@ class SrlTransformersReader(SrlReader):
                         f if v == 1 else "O"
                         for f, v in zip(sentence.predicate_framenet_ids, verb_indicator)
                     ]
+                    lemmas = [
+                        f for f, v in zip(sentence.predicate_lemmas, verb_indicator) if v == 1
+                    ]
                     if not all(v == 0 for v in verb_indicator):
-                        yield self.text_to_instance(tokens, verb_indicator, frames, tags)
+                        yield self.text_to_instance(tokens, verb_indicator, frames, lemmas, tags)
 
     def text_to_instance(  # type: ignore
         self,
         tokens: List[Token],
         verb_label: List[int],
         frames: List[str] = None,
+        lemmas: List[str] = None,
         tags: List[str] = None,
     ) -> Instance:
         """
@@ -297,6 +301,7 @@ class SrlTransformersReader(SrlReader):
             verb = tokens[verb_index].text
 
         metadata_dict["words"] = [x.text for x in tokens]
+        metadata_dict["lemmas"] = lemmas
         metadata_dict["verb"] = verb
         metadata_dict["verb_index"] = verb_index
 
