@@ -5,7 +5,7 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
     name="srl-bert-verbatlas",  # Replace with your own username
-    version="0.9.6.8",
+    version="0.9.7",
     author="Riccardo Orlando",
     author_email="orlandoricc@gmail.com",
     description="SRL Bert model trained with VerbAtlas inventory",
@@ -13,6 +13,7 @@ setuptools.setup(
     long_description_content_type="text/markdown",
     url="https://github.com/Riccorl/srl-bert-verbatlas",
     packages=setuptools.find_packages(),
+    include_package_data=True,
     classifiers=[
         "Programming Language :: Python :: 3",
         "License :: OSI Approved :: MIT License",

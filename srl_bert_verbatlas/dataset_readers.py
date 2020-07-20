@@ -1,4 +1,6 @@
 import logging
+from typing import Any, Dict, Iterable, List, Tuple
+
 from allennlp.common.file_utils import cached_path
 from allennlp.data.dataset_readers.dataset_reader import DatasetReader
 from allennlp.data.dataset_readers.dataset_utils import Ontonotes, OntonotesSentence
@@ -8,7 +10,6 @@ from allennlp.data.token_indexers import SingleIdTokenIndexer, TokenIndexer
 from allennlp.data.tokenizers import Token
 from overrides import overrides
 from pytorch_pretrained_bert.tokenization import BertTokenizer
-from typing import Any, Dict, Iterable, List, Tuple
 
 logger = logging.getLogger(__name__)  # pylint: disable=invalid-name
 
@@ -249,8 +250,11 @@ class SrlReaderVerbatlas(DatasetReader):
                         f if v == 1 else "O"
                         for f, v in zip(sentence.predicate_framenet_ids, verb_indicator)
                     ]
+                    lemmas = [
+                        f for f, v in zip(sentence.predicate_lemmas, verb_indicator) if v == 1
+                    ]
                     if not all(v == 0 for v in verb_indicator):
-                        yield self.text_to_instance(tokens, verb_indicator, frames, tags)
+                        yield self.text_to_instance(tokens, verb_indicator, frames, lemmas, tags)
 
     @staticmethod
     def _ontonotes_subset(
@@ -270,6 +274,7 @@ class SrlReaderVerbatlas(DatasetReader):
         tokens: List[Token],
         verb_label: List[int],
         frames: List[str] = None,
+        lemmas: List[str] = None,
         tags: List[str] = None,
     ) -> Instance:
         """
@@ -308,8 +313,7 @@ class SrlReaderVerbatlas(DatasetReader):
             verb = tokens[verb_index].text
 
         metadata_dict["words"] = [x.text for x in tokens]
-        metadata_dict["poses"] = [x.pos_ for x in tokens]
-        metadata_dict["lemmas"] = [x.lemma_ for x in tokens]
+        metadata_dict["lemmas"] = lemmas
         metadata_dict["verb"] = verb
         metadata_dict["verb_index"] = verb_index
 

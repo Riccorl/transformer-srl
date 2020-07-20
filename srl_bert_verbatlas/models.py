@@ -1,5 +1,8 @@
+import os
+from collections import defaultdict
 from typing import Dict, List, Optional, Any, Union
 
+import numpy as np
 import torch
 import torch.nn.functional as F
 from allennlp.data import Vocabulary
@@ -16,6 +19,24 @@ from allennlp.training.metrics.srl_eval_scorer import (
 from overrides import overrides
 from pytorch_pretrained_bert.modeling import BertModel
 from torch.nn.modules import Linear, Dropout
+
+LEMMA_FRAME_PATH = os.path.abspath(
+    os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "resources", "lemma2frame.csv")
+)
+
+
+def read_dictionary(filename: str) -> Dict:
+    """
+    Open a dictionary from file, in the format key -> value
+    :param filename: file to read.
+    :return: a dictionary.
+    """
+    dictionary = defaultdict(list)
+    with open(filename) as file:
+        for l in file:
+            k, *v = l.split()
+            dictionary[k] += v
+    return dictionary
 
 
 @Model.register("srl_bert_verbatlas")
@@ -53,6 +74,7 @@ class SrlBertVerbatlas(Model):
         srl_eval_path: str = DEFAULT_SRL_EVAL_PATH,
     ) -> None:
         super(SrlBertVerbatlas, self).__init__(vocab, regularizer)
+        self.lemma_frame_dict = read_dictionary(LEMMA_FRAME_PATH)
 
         if isinstance(bert_model, str):
             self.bert_model = BertModel.from_pretrained(bert_model)
@@ -138,7 +160,6 @@ class SrlBertVerbatlas(Model):
         embedded_text_input = self.embedding_dropout(bert_embeddings)
         verbs_embeddings = embedded_text_input[frame_indicator == 1]
         batch_size, sequence_length, _ = embedded_text_input.size()
-        num_predicates, _ = verbs_embeddings.size()
         logits = self.tag_projection_layer(embedded_text_input)
         frame_logits = self.frame_projection_layer(verbs_embeddings)
 
@@ -159,9 +180,8 @@ class SrlBertVerbatlas(Model):
         # when we do viterbi inference in self.decode.
         # We add in the offsets here so we can compute the un-wordpieced tags.
         words, verbs, offsets = zip(*[(x["words"], x["verb"], x["offsets"]) for x in metadata])
-        poses, lemmas = zip(*[(x["poses"], x["lemmas"]) for x in metadata])
+        lemmas = [l for x in metadata for l in x["lemmas"]]
         output_dict["words"] = list(words)
-        output_dict["poses"] = list(poses)
         output_dict["lemmas"] = list(lemmas)
         output_dict["verb"] = list(verbs)
         output_dict["wordpiece_offsets"] = list(offsets)
@@ -181,7 +201,7 @@ class SrlBertVerbatlas(Model):
                 # Get the BIO tags from decode()
                 # TODO (nfliu): This is kind of a hack, consider splitting out part
                 # of decode() to a separate function.
-                batch_bio_predicted_tags = self.decode(output_dict).pop("tags")
+                batch_bio_predicted_tags = self.decode(output_dict, False).pop("tags")
                 batch_conll_predicted_tags = [
                     convert_bio_tags_to_conll_format(tags) for tags in batch_bio_predicted_tags
                 ]
@@ -204,17 +224,47 @@ class SrlBertVerbatlas(Model):
             output_dict["loss"] = (role_loss + frame_loss) / 2
         return output_dict
 
-    def decode_frames(self, output_dict: Dict[str, torch.Tensor]):
+    def decode_frames(
+        self, output_dict: Dict[str, torch.Tensor], restrict: bool = True
+    ) -> Dict[str, torch.Tensor]:
         # frame prediction
-        frame_predictions = output_dict["frame_probabilities"]
-        frame_predicted = frame_predictions.argmax(dim=-1).cpu().data.numpy()
+        frame_probabilities = output_dict["frame_probabilities"]
+        if not restrict:
+            frame_predictions = frame_probabilities.argmax(dim=-1).cpu().data.numpy()
+            output_dict["frame_tags"] = [
+                self.vocab.get_token_from_index(f, namespace="frames_labels")
+                for f in frame_predictions
+            ]
+            return output_dict
+        frame_probabilities = frame_probabilities.cpu().data.numpy()
+        lemmas = output_dict["lemmas"]
+        candidate_labels = [self.lemm_frame_dict.get(l, []) for l in lemmas]
+        # clear candidates from unknowns
+        label_set = set(k for k in self.vocab.get_token_to_index_vocabulary("frames_labels").keys())
+        candidate_labels_ids = [
+            self.vocab.get_token_index(l, namespace="frames_labels")
+            for cl in candidate_labels
+            for l in cl
+            if l in label_set
+        ]
+        frame_predictions = []
+        for cl, fp in zip(candidate_labels_ids, frame_probabilities):
+            # restrict candidates from verbatlas inventory
+            fp_candidates = np.take(fp, cl)
+            if fp_candidates.size > 0:
+                frame_predictions.append(fp_candidates.argmax(dim=-1))
+            else:
+                frame_predictions.append(fp.argmax(dim=-1))
+
         output_dict["frame_tags"] = [
-            self.vocab.get_token_from_index(f, namespace="frames_labels") for f in frame_predicted
+            self.vocab.get_token_from_index(f, namespace="frames_labels") for f in frame_predictions
         ]
         return output_dict
 
     @overrides
-    def decode(self, output_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+    def decode(
+        self, output_dict: Dict[str, torch.Tensor], restrict: bool = True
+    ) -> Dict[str, torch.Tensor]:
         """
         Does constrained viterbi decoding on class probabilities output in :func:`forward`.  The
         constraint simply specifies that the output tags must be a valid BIO sequence.  We add a
@@ -264,7 +314,7 @@ class SrlBertVerbatlas(Model):
             word_tags.append([tags[i] for i in offsets])
         output_dict["wordpiece_tags"] = wordpiece_tags
         output_dict["tags"] = word_tags
-        self.decode_frames(output_dict)
+        self.decode_frames(output_dict, restrict)
 
         return output_dict
 
