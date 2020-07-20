@@ -1,15 +1,15 @@
 from typing import List, Dict
 
 import numpy
-from overrides import overrides
-from spacy.tokens import Doc
-
 from allennlp.common.util import JsonDict, sanitize, group_by_count
 from allennlp.data import DatasetReader, Instance
 from allennlp.data.tokenizers.spacy_tokenizer import SpacyTokenizer
 from allennlp.models import Model
-from allennlp.predictors.predictor import Predictor
 from allennlp.models.archival import Archive, load_archive
+from allennlp.predictors.predictor import Predictor
+from allennlp_models.structured_prediction import SemanticRoleLabelerPredictor
+from overrides import overrides
+from spacy.tokens import Doc
 
 
 @Predictor.register("srl_transformers")

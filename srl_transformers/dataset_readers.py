@@ -1,9 +1,6 @@
 import logging
 from typing import Dict, List, Iterable, Tuple, Any
 
-from overrides import overrides
-from transformers import AutoTokenizer
-
 from allennlp.common.file_utils import cached_path
 from allennlp.data.dataset_readers.dataset_reader import DatasetReader
 from allennlp.data.fields import Field, TextField, SequenceLabelField, MetadataField
@@ -12,6 +9,8 @@ from allennlp.data.token_indexers import SingleIdTokenIndexer, TokenIndexer
 from allennlp.data.tokenizers import Token
 from allennlp_models.common.ontonotes import Ontonotes, OntonotesSentence
 from allennlp_models.structured_prediction import SrlReader
+from overrides import overrides
+from transformers import AutoTokenizer
 
 logger = logging.getLogger(__name__)
 
@@ -167,7 +166,7 @@ class SrlTransformersReader(SrlReader):
         bert_model_name: str = None,
         **kwargs,
     ) -> None:
-        super(DatasetReader).__init__(**kwargs)
+        DatasetReader.__init__(self, **kwargs)
         self._token_indexers = token_indexers or {"tokens": SingleIdTokenIndexer()}
         self._domain_identifier = domain_identifier
 

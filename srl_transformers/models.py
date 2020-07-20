@@ -1,22 +1,21 @@
 from typing import Dict, List, Any, Union
 
-from overrides import overrides
 import torch
-from torch.nn.modules import Linear, Dropout
 import torch.nn.functional as F
-from transformers import AutoModel
-
 from allennlp.data import TextFieldTensors, Vocabulary
 from allennlp.models.model import Model
-from allennlp_models.structured_prediction import SrlBert
 from allennlp.nn import InitializerApplicator, util
-from allennlp.nn.util import get_text_field_mask, sequence_cross_entropy_with_logits
 from allennlp.nn.util import get_lengths_from_binary_sequence_mask, viterbi_decode
-
+from allennlp.nn.util import get_text_field_mask, sequence_cross_entropy_with_logits
+from allennlp.training.metrics.fbeta_measure import FBetaMeasure
+from allennlp_models.structured_prediction import SrlBert
 from allennlp_models.structured_prediction.metrics.srl_eval_scorer import (
     DEFAULT_SRL_EVAL_PATH,
     SrlEvalScorer,
 )
+from overrides import overrides
+from torch.nn.modules import Linear, Dropout
+from transformers import AutoModel
 
 
 @Model.register("srl_transformers")
@@ -51,7 +50,7 @@ class SrlTransformers(SrlBert):
         srl_eval_path: str = DEFAULT_SRL_EVAL_PATH,
         **kwargs,
     ) -> None:
-        super(SrlBert).__init__(vocab, **kwargs)
+        Model.__init__(self, vocab, **kwargs)
 
         if isinstance(bert_model, str):
             self.bert_model = AutoModel.from_pretrained(bert_model)
@@ -67,9 +66,7 @@ class SrlTransformers(SrlBert):
         else:
             self.span_metric = None
         self.f1_frame_metric = FBetaMeasure(average="micro")
-        self.tag_projection_layer = Linear(
-            self.bert_model.config.hidden_size, self.num_classes
-        )
+        self.tag_projection_layer = Linear(self.bert_model.config.hidden_size, self.num_classes)
         self.frame_projection_layer = Linear(
             self.bert_model.config.hidden_size, self.frame_num_classes
         )
@@ -138,7 +135,6 @@ class SrlTransformers(SrlBert):
         frame_embeddings = embedded_text_input[frame_indicator == 1]
         # get sizes
         batch_size, sequence_length, _ = embedded_text_input.size()
-        num_predicates, _ = verbs_embeddings.size()
         # outputs
         logits = self.tag_projection_layer(embedded_text_input)
         frame_logits = self.frame_projection_layer(frame_embeddings)
@@ -159,9 +155,7 @@ class SrlTransformers(SrlBert):
             "mask": mask,
         }
         # We add in the offsets here so we can compute the un-wordpieced tags.
-        words, verbs, offsets = zip(
-            *[(x["words"], x["verb"], x["offsets"]) for x in metadata]
-        )
+        words, verbs, offsets = zip(*[(x["words"], x["verb"], x["offsets"]) for x in metadata])
         output_dict["words"] = list(words)
         output_dict["verb"] = list(verbs)
         output_dict["wordpiece_offsets"] = list(offsets)
@@ -174,35 +168,25 @@ class SrlTransformers(SrlBert):
             # compute frame loss
             frame_tags_filtered = frame_tags[frame_indicator == 1]
             frame_loss = self.frame_criterion(frame_logits, frame_tags_filtered)
-            if (
-                not self.ignore_span_metric
-                and self.span_metric is not None
-                and not self.training
-            ):
+            if not self.ignore_span_metric and self.span_metric is not None and not self.training:
                 batch_verb_indices = [
                     example_metadata["verb_index"] for example_metadata in metadata
                 ]
-                batch_sentences = [
-                    example_metadata["words"] for example_metadata in metadata
-                ]
+                batch_sentences = [example_metadata["words"] for example_metadata in metadata]
                 # Get the BIO tags from make_output_human_readable()
-                batch_bio_predicted_tags = self.make_output_human_readable(
-                    output_dict
-                ).pop("tags")
+                batch_bio_predicted_tags = self.make_output_human_readable(output_dict).pop("tags")
                 from allennlp_models.structured_prediction.models.srl import (
                     convert_bio_tags_to_conll_format,
                 )
 
                 batch_conll_predicted_tags = [
-                    convert_bio_tags_to_conll_format(tags)
-                    for tags in batch_bio_predicted_tags
+                    convert_bio_tags_to_conll_format(tags) for tags in batch_bio_predicted_tags
                 ]
                 batch_bio_gold_tags = [
                     example_metadata["gold_tags"] for example_metadata in metadata
                 ]
                 batch_conll_gold_tags = [
-                    convert_bio_tags_to_conll_format(tags)
-                    for tags in batch_bio_gold_tags
+                    convert_bio_tags_to_conll_format(tags) for tags in batch_bio_gold_tags
                 ]
                 self.span_metric(
                     batch_verb_indices,
@@ -216,15 +200,12 @@ class SrlTransformers(SrlBert):
             output_dict["loss"] = (role_loss + frame_loss) / 2
         return output_dict
 
-    def decode_frames(
-        self, output_dict: Dict[str, torch.Tensor]
-    ) -> Dict[str, torch.Tensor]:
+    def decode_frames(self, output_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         # frame prediction
         frame_predictions = output_dict["frame_probabilities"]
         frame_predicted = frame_predictions.argmax(dim=-1).cpu().data.numpy()
         output_dict["frame_tags"] = [
-            self.vocab.get_token_from_index(f, namespace="frames_labels")
-            for f in frame_predicted
+            self.vocab.get_token_from_index(f, namespace="frames_labels") for f in frame_predicted
         ]
         return output_dict
 
@@ -249,9 +230,7 @@ class SrlTransformers(SrlBert):
             # This can be a lot of metrics, as there are 3 per class.
             # we only really care about the overall metrics, so we filter for them here.
             metric_dict_filtered = {
-                x.split("-")[0] + "_role": y
-                for x, y in metric_dict.items()
-                if "overall" in x
+                x.split("-")[0] + "_role": y for x, y in metric_dict.items() if "overall" in x
             }
             frame_metric_dict = {x + "_frame": y for x, y in frame_metric_dict.items()}
             return {**metric_dict_filtered, **frame_metric_dict}
