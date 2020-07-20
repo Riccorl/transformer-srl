@@ -320,9 +320,7 @@ class SrlReaderVerbatlas(DatasetReader):
         if tags:
             new_tags = _convert_tags_to_wordpiece_tags(tags, offsets)
             new_frames = _convert_frames_indices_to_wordpiece_indices(frames, offsets)
-            fields["tags"] = SequenceLabelField(
-                new_tags, text_field, label_namespace="roles_labels"
-            )
+            fields["tags"] = SequenceLabelField(new_tags, text_field)
             fields["frame_tags"] = SequenceLabelField(
                 new_frames, text_field, label_namespace="frames_labels"
             )

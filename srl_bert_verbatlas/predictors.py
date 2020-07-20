@@ -21,21 +21,20 @@ class SRL(SemanticRoleLabelerPredictor):
 
     @staticmethod
     def make_srl_string(words: List[str], tags: List[str], frame: str) -> str:
-        srl_string = super().make_srl_string(words, tags)
-        srl_string = srl_string.replace("B-V", "B-" + frame)
+        srl_string = SemanticRoleLabelerPredictor.make_srl_string(words, tags)
+        srl_string = srl_string.replace("[V", "[" + frame)
         return srl_string
 
     @overrides
     def tokens_to_instances(self, tokens):
         words = [token.text for token in tokens]
-        lemmas = [token.lemma_ for token in tokens]
         instances: List[Instance] = []
         for i, word in enumerate(tokens):
             if word.pos_ == "VERB":
                 verb_labels = [0 for _ in words]
                 verb_labels[i] = 1
                 instance = self._dataset_reader.text_to_instance(
-                    tokens, verb_labels, lemmas=lemmas[i]
+                    tokens, verb_labels, lemmas=[word.lemma_]
                 )
                 instances.append(instance)
         return instances

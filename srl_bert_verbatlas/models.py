@@ -73,7 +73,7 @@ class SrlBertVerbatlas(Model):
         ignore_span_metric: bool = False,
         srl_eval_path: str = DEFAULT_SRL_EVAL_PATH,
     ) -> None:
-        super(SrlBertVerbatlas, self).__init__(vocab, regularizer)
+        Model.__init__(self, vocab, regularizer)
         self.lemma_frame_dict = read_dictionary(LEMMA_FRAME_PATH)
 
         if isinstance(bert_model, str):
@@ -82,7 +82,7 @@ class SrlBertVerbatlas(Model):
             self.bert_model = bert_model
         self.frame_criterion = torch.nn.CrossEntropyLoss()
         # num classes
-        self.num_classes = self.vocab.get_vocab_size("roles_labels")
+        self.num_classes = self.vocab.get_vocab_size("labels")
         self.frame_num_classes = self.vocab.get_vocab_size("frames_labels")
         if srl_eval_path is not None:
             # For the span based evaluation, we don't want to consider labels
@@ -182,7 +182,7 @@ class SrlBertVerbatlas(Model):
         words, verbs, offsets = zip(*[(x["words"], x["verb"], x["offsets"]) for x in metadata])
         lemmas = [l for x in metadata for l in x["lemmas"]]
         output_dict["words"] = list(words)
-        output_dict["lemmas"] = list(lemmas)
+        output_dict["lemma"] = list(lemmas)
         output_dict["verb"] = list(verbs)
         output_dict["wordpiece_offsets"] = list(offsets)
 
@@ -237,24 +237,23 @@ class SrlBertVerbatlas(Model):
             ]
             return output_dict
         frame_probabilities = frame_probabilities.cpu().data.numpy()
-        lemmas = output_dict["lemmas"]
+        lemmas = output_dict["lemma"]
         candidate_labels = [self.lemma_frame_dict.get(l, []) for l in lemmas]
         # clear candidates from unknowns
         label_set = set(k for k in self.vocab.get_token_to_index_vocabulary("frames_labels").keys())
         candidate_labels_ids = [
-            self.vocab.get_token_index(l, namespace="frames_labels")
+            [self.vocab.get_token_index(l, namespace="frames_labels") for l in cl if l in label_set]
             for cl in candidate_labels
-            for l in cl
-            if l in label_set
         ]
+
         frame_predictions = []
         for cl, fp in zip(candidate_labels_ids, frame_probabilities):
             # restrict candidates from verbatlas inventory
             fp_candidates = np.take(fp, cl)
             if fp_candidates.size > 0:
-                frame_predictions.append(fp_candidates.argmax(dim=-1))
+                frame_predictions.append(cl[fp_candidates.argmax(axis=-1)])
             else:
-                frame_predictions.append(fp.argmax(dim=-1))
+                frame_predictions.append(fp.argmax(axis=-1))
 
         output_dict["frame_tags"] = [
             self.vocab.get_token_from_index(f, namespace="frames_labels") for f in frame_predictions
@@ -265,57 +264,8 @@ class SrlBertVerbatlas(Model):
     def decode(
         self, output_dict: Dict[str, torch.Tensor], restrict: bool = True
     ) -> Dict[str, torch.Tensor]:
-        """
-        Does constrained viterbi decoding on class probabilities output in :func:`forward`.  The
-        constraint simply specifies that the output tags must be a valid BIO sequence.  We add a
-        ``"tags"`` key to the dictionary with the result.
-
-        NOTE: First, we decode a BIO sequence on top of the wordpieces. This is important; viterbi
-        decoding produces low quality output if you decode on top of word representations directly,
-        because the model gets confused by the 'missing' positions (which is sensible as it is trained
-        to perform tagging on wordpieces, not words).
-
-        Secondly, it's important that the indices we use to recover words from the wordpieces are the
-        start_offsets (i.e offsets which correspond to using the first wordpiece of words which are
-        tokenized into multiple wordpieces) as otherwise, we might get an ill-formed BIO sequence
-        when we select out the word tags from the wordpiece tags. This happens in the case that a word
-        is split into multiple word pieces, and then we take the last tag of the word, which might
-        correspond to, e.g, I-V, which would not be allowed as it is not preceeded by a B tag.
-        """
-        all_predictions = output_dict["class_probabilities"]
-        sequence_lengths = get_lengths_from_binary_sequence_mask(output_dict["mask"]).data.tolist()
-
-        if all_predictions.dim() == 3:
-            predictions_list = [
-                all_predictions[i].detach().cpu() for i in range(all_predictions.size(0))
-            ]
-        else:
-            predictions_list = [all_predictions]
-        wordpiece_tags = []
-        word_tags = []
-        transition_matrix = self.get_viterbi_pairwise_potentials()
-        start_transitions = self.get_start_transitions()
-        # **************** Different ********************
-        # We add in the offsets here so we can compute the un-wordpieced tags.
-        for predictions, length, offsets in zip(
-            predictions_list, sequence_lengths, output_dict["wordpiece_offsets"]
-        ):
-            max_likelihood_sequence, _ = viterbi_decode(
-                predictions[:length],
-                transition_matrix,
-                allowed_start_transitions=start_transitions,
-            )
-            tags = [
-                self.vocab.get_token_from_index(x, namespace="roles_labels")
-                for x in max_likelihood_sequence
-            ]
-
-            wordpiece_tags.append(tags)
-            word_tags.append([tags[i] for i in offsets])
-        output_dict["wordpiece_tags"] = wordpiece_tags
-        output_dict["tags"] = word_tags
-        self.decode_frames(output_dict, restrict)
-
+        output_dict = super().decode(output_dict)
+        output_dict = self.decode_frames(output_dict, restrict)
         return output_dict
 
     def get_metrics(self, reset: bool = False):
@@ -334,50 +284,3 @@ class SrlBertVerbatlas(Model):
             }
             frame_metric_dict = {x + "_frame": y for x, y in frame_metric_dict.items()}
             return {**metric_dict_filtered, **frame_metric_dict}
-
-    def get_viterbi_pairwise_potentials(self):
-        """
-        Generate a matrix of pairwise transition potentials for the BIO labels.
-        The only constraint implemented here is that I-XXX labels must be preceded
-        by either an identical I-XXX tag or a B-XXX tag. In order to achieve this
-        constraint, pairs of labels which do not satisfy this constraint have a
-        pairwise potential of -inf.
-
-        Returns
-        -------
-        transition_matrix : torch.Tensor
-            A (num_labels, num_labels) matrix of pairwise potentials.
-        """
-        all_labels = self.vocab.get_index_to_token_vocabulary("roles_labels")
-        num_labels = len(all_labels)
-        transition_matrix = torch.zeros([num_labels, num_labels])
-
-        for i, previous_label in all_labels.items():
-            for j, label in all_labels.items():
-                # I labels can only be preceded by themselves or
-                # their corresponding B tag.
-                if i != j and label[0] == "I" and not previous_label == "B" + label[1:]:
-                    transition_matrix[i, j] = float("-inf")
-        return transition_matrix
-
-    def get_start_transitions(self):
-        """
-        In the BIO sequence, we cannot start the sequence with an I-XXX tag.
-        This transition sequence is passed to viterbi_decode to specify this constraint.
-
-        Returns
-        -------
-        start_transitions : torch.Tensor
-            The pairwise potentials between a START token and
-            the first token of the sequence.
-        """
-        all_labels = self.vocab.get_index_to_token_vocabulary("roles_labels")
-        num_labels = len(all_labels)
-
-        start_transitions = torch.zeros(num_labels)
-
-        for i, label in all_labels.items():
-            if label[0] == "I":
-                start_transitions[i] = float("-inf")
-
-        return start_transitions
