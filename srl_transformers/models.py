@@ -20,7 +20,7 @@ from overrides import overrides
 from torch.nn.modules import Linear, Dropout
 from transformers import AutoModel
 
-LEMMA_FRAME = os.path.abspath(
+LEMMA_FRAME_PATH = os.path.abspath(
     os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "resources", "lemma2frame.csv")
 )
 
@@ -74,7 +74,7 @@ class SrlTransformers(SrlBert):
         # bypass SrlBert constructor
         Model.__init__(self, vocab, **kwargs)
         # load (lemma, frames) dictionary
-        self.lemm_frame_dict = read_dictionary(LEMMA_FRAME)
+        self.lemm_frame_dict = read_dictionary(LEMMA_FRAME_PATH)
         if isinstance(bert_model, str):
             self.bert_model = AutoModel.from_pretrained(bert_model)
         else:

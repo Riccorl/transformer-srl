@@ -1,6 +1,7 @@
-from typing import List, Dict
+from typing import List, Dict, Type
 
 import numpy
+from allennlp.common import plugins
 from allennlp.common.util import JsonDict, sanitize, group_by_count
 from allennlp.data import DatasetReader, Instance
 from allennlp.data.tokenizers.spacy_tokenizer import SpacyTokenizer
@@ -141,38 +142,51 @@ class SrlTransformersPredictor(SemanticRoleLabelerPredictor):
         archive_path: str,
         predictor_name: str = None,
         cuda_device: int = -1,
-        language: str = "en_core_web_sm",
         dataset_reader_to_load: str = "validation",
-    ) -> "SrlTransformersPredictor":
+        frozen: bool = True,
+        import_plugins: bool = True,
+        language: str = "en_core_web_sm",
+    ) -> "Predictor":
         """
-        Instantiate a :class:`Predictor` from an archive path.
+        Instantiate a `Predictor` from an archive path.
 
         If you need more detailed configuration options, such as overrides,
         please use `from_archive`.
 
-        Parameters
-        ----------
-        archive_path: ``str``
+        # Parameters
+
+        archive_path : `str`
             The path to the archive.
-        predictor_name: ``str``, optional (default=None)
+        predictor_name : `str`, optional (default=`None`)
             Name that the predictor is registered as, or None to use the
             predictor associated with the model.
-        cuda_device: ``int``, optional (default=-1)
+        cuda_device : `int`, optional (default=`-1`)
             If `cuda_device` is >= 0, the model will be loaded onto the
             corresponding GPU. Otherwise it will be loaded onto the CPU.
-        dataset_reader_to_load: ``str``, optional (default="validation")
+        dataset_reader_to_load : `str`, optional (default=`"validation"`)
             Which dataset reader to load from the archive, either "train" or
             "validation".
+        frozen : `bool`, optional (default=`True`)
+            If we should call `model.eval()` when building the predictor.
+        import_plugins : `bool`, optional (default=`True`)
+            If `True`, we attempt to import plugins before loading the predictor.
+            This comes with additional overhead, but means you don't need to explicitly
+            import the modules that your predictor depends on as long as those modules
+            can be found by `allennlp.common.plugins.import_plugins()`.
 
-        Returns
-        -------
-        A Predictor instance.
+        # Returns
+
+        `Predictor`
+            A Predictor instance.
         """
+        if import_plugins:
+            plugins.import_plugins()
         return SrlTransformersPredictor.from_archive(
             load_archive(archive_path, cuda_device=cuda_device),
             predictor_name,
-            language=language,
             dataset_reader_to_load=dataset_reader_to_load,
+            frozen=frozen,
+            language=language,
         )
 
     @classmethod
@@ -180,27 +194,29 @@ class SrlTransformersPredictor(SemanticRoleLabelerPredictor):
         cls,
         archive: Archive,
         predictor_name: str = None,
-        language: str = "en_core_web_sm",
         dataset_reader_to_load: str = "validation",
-    ) -> "SrlTransformersPredictor":
+        frozen: bool = True,
+        language: str = "en_core_web_sm",
+    ) -> "Predictor":
         """
-        Instantiate a :class:`Predictor` from an :class:`~allennlp.models.archival.Archive`;
+        Instantiate a `Predictor` from an [`Archive`](../models/archival.md);
         that is, from the result of training a model. Optionally specify which `Predictor`
-        subclass; otherwise, the default one for the model will be used. Optionally specify
-        which :class:`DatasetReader` should be loaded; otherwise, the validation one will be used
-        if it exists followed by the training dataset reader.
+        subclass; otherwise, we try to find a corresponding predictor in `DEFAULT_PREDICTORS`, or if
+        one is not found, the base class (i.e. `Predictor`) will be used. Optionally specify
+        which [`DatasetReader`](../data/dataset_readers/dataset_reader.md) should be loaded;
+        otherwise, the validation one will be used if it exists followed by the training dataset reader.
+        Optionally specify if the loaded model should be frozen, meaning `model.eval()` will be called.
         """
         # Duplicate the config so that the config inside the archive doesn't get consumed
         config = archive.config.duplicate()
 
         if not predictor_name:
             model_type = config.get("model").get("type")
-            if not model_type in DEFAULT_PREDICTORS:
-                raise ConfigurationError(
-                    f"No default predictor for model type {model_type}.\n"
-                    f"Please specify a predictor explicitly."
-                )
-            predictor_name = DEFAULT_PREDICTORS[model_type]
+            model_class, _ = Model.resolve_class_name(model_type)
+            predictor_name = model_class.default_predictor
+        predictor_class: Type[Predictor] = Predictor.by_name(  # type: ignore
+            predictor_name
+        ) if predictor_name is not None else cls
 
         if dataset_reader_to_load == "validation" and "validation_dataset_reader" in config:
             dataset_reader_params = config["validation_dataset_reader"]
@@ -209,6 +225,7 @@ class SrlTransformersPredictor(SemanticRoleLabelerPredictor):
         dataset_reader = DatasetReader.from_params(dataset_reader_params)
 
         model = archive.model
-        model.eval()
+        if frozen:
+            model.eval()
 
-        return Predictor.by_name(predictor_name)(model, dataset_reader, language)
+        return predictor_class(model, dataset_reader, language)
