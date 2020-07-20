@@ -8,6 +8,7 @@ import torch
 import torch.nn.functional as F
 from allennlp.data import Vocabulary
 from allennlp.models.model import Model
+from allennlp.models import SrlBert
 from allennlp.models.srl_util import convert_bio_tags_to_conll_format
 from allennlp.nn import InitializerApplicator, RegularizerApplicator
 from allennlp.nn.util import get_lengths_from_binary_sequence_mask, viterbi_decode
