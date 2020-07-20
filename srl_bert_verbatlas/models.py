@@ -40,7 +40,7 @@ def read_dictionary(filename: pathlib.Path) -> Dict:
 
 
 @Model.register("srl_bert_verbatlas")
-class SrlBertVerbatlas(Model):
+class SrlBertVerbatlas(SrlBert):
     """
 
     Parameters
