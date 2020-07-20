@@ -238,7 +238,7 @@ class SrlBertVerbatlas(Model):
             return output_dict
         frame_probabilities = frame_probabilities.cpu().data.numpy()
         lemmas = output_dict["lemmas"]
-        candidate_labels = [self.lemm_frame_dict.get(l, []) for l in lemmas]
+        candidate_labels = [self.lemma_frame_dict.get(l, []) for l in lemmas]
         # clear candidates from unknowns
         label_set = set(k for k in self.vocab.get_token_to_index_vocabulary("frames_labels").keys())
         candidate_labels_ids = [
