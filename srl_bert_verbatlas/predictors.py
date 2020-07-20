@@ -26,6 +26,21 @@ class SRL(SemanticRoleLabelerPredictor):
         return srl_string
 
     @overrides
+    def tokens_to_instances(self, tokens):
+        words = [token.text for token in tokens]
+        lemmas = [token.lemma_ for token in tokens]
+        instances: List[Instance] = []
+        for i, word in enumerate(tokens):
+            if word.pos_ == "VERB":
+                verb_labels = [0 for _ in words]
+                verb_labels[i] = 1
+                instance = self._dataset_reader.text_to_instance(
+                    tokens, verb_labels, lemmas=lemmas[i]
+                )
+                instances.append(instance)
+        return instances
+
+    @overrides
     def predict_batch_json(self, inputs: List[JsonDict]) -> List[JsonDict]:
         # For SRL, we have more instances than sentences, but the user specified
         # a batch size with respect to the number of sentences passed, so we respect
