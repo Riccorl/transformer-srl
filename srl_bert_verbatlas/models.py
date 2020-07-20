@@ -1,5 +1,6 @@
 import os
 from collections import defaultdict
+import pathlib
 from typing import Dict, List, Optional, Any, Union
 
 import numpy as np
@@ -20,12 +21,11 @@ from overrides import overrides
 from pytorch_pretrained_bert.modeling import BertModel
 from torch.nn.modules import Linear, Dropout
 
-LEMMA_FRAME_PATH = os.path.abspath(
-    os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "resources", "lemma2frame.csv")
-)
+
+LEMMA_FRAME_PATH = pathlib.Path(__file__).resolve().parent / "resources" / "lemma2frame.csv"
 
 
-def read_dictionary(filename: str) -> Dict:
+def read_dictionary(filename: pathlib.Path) -> Dict:
     """
     Open a dictionary from file, in the format key -> value
     :param filename: file to read.
