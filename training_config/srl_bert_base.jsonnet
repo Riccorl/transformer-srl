@@ -6,7 +6,7 @@
 
     "iterator": {
         "type": "bucket",
-        "batch_size": 16,
+        "batch_size": 32,
         "sorting_keys": [["tokens", "num_tokens"]]
     },
 
