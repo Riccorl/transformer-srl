@@ -98,6 +98,7 @@ class SRL(SemanticRoleLabelerPredictor):
                         "description": description,
                         "tags": tags,
                         "frame": frame,
+                        "frame_scores": output["frame_scores"],
                         "lemma": output["lemma"],
                     }
                 )
@@ -122,6 +123,7 @@ class SRL(SemanticRoleLabelerPredictor):
                     "description": description,
                     "tags": tags,
                     "frame": frame,
+                    "frame_score": output["frame_scores"],
                     "lemma": output["lemma"],
                 }
             )
@@ -136,12 +138,14 @@ class SRL(SemanticRoleLabelerPredictor):
         cuda_device: int = -1,
         language: str = "en_core_web_sm",
         dataset_reader_to_load: str = "validation",
+        restrict: bool = False,
     ) -> "SRL":
         return SRL.from_archive(
             load_archive(archive_path, cuda_device=cuda_device),
             predictor_name,
             language=language,
             dataset_reader_to_load=dataset_reader_to_load,
+            restrict=restrict,
         )
 
     @classmethod
@@ -151,6 +155,7 @@ class SRL(SemanticRoleLabelerPredictor):
         predictor_name: str = None,
         language: str = "en_core_web_sm",
         dataset_reader_to_load: str = "validation",
+        restrict: bool = False,
     ) -> "SRL":
         """
         Instantiate a :class:`Predictor` from an :class:`~allennlp.models.archival.Archive`;
@@ -178,6 +183,7 @@ class SRL(SemanticRoleLabelerPredictor):
         dataset_reader = DatasetReader.from_params(dataset_reader_params)
 
         model = archive.model
+        model.restrict = restrict
         model.eval()
 
         return Predictor.by_name(predictor_name)(model, dataset_reader, language)

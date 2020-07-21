@@ -73,10 +73,11 @@ class SrlBertVerbatlas(SrlBert):
         label_smoothing: float = None,
         ignore_span_metric: bool = False,
         srl_eval_path: str = DEFAULT_SRL_EVAL_PATH,
+        restrict: bool = False,
     ) -> None:
         Model.__init__(self, vocab, regularizer)
         self.lemma_frame_dict = read_dictionary(LEMMA_FRAME_PATH)
-
+        self.restrict = restrict
         if isinstance(bert_model, str):
             self.bert_model = BertModel.from_pretrained(bert_model)
         else:
@@ -202,7 +203,7 @@ class SrlBertVerbatlas(SrlBert):
                 # Get the BIO tags from decode()
                 # TODO (nfliu): This is kind of a hack, consider splitting out part
                 # of decode() to a separate function.
-                batch_bio_predicted_tags = self.decode(output_dict, False).pop("tags")
+                batch_bio_predicted_tags = self.decode(output_dict).pop("tags")
                 batch_conll_predicted_tags = [
                     convert_bio_tags_to_conll_format(tags) for tags in batch_bio_predicted_tags
                 ]
@@ -225,48 +226,56 @@ class SrlBertVerbatlas(SrlBert):
             output_dict["loss"] = (role_loss + frame_loss) / 2
         return output_dict
 
-    def decode_frames(
-        self, output_dict: Dict[str, torch.Tensor], restrict: bool = True
-    ) -> Dict[str, torch.Tensor]:
+    def decode_frames(self, output_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         # frame prediction
         frame_probabilities = output_dict["frame_probabilities"]
-        if not restrict:
-            frame_predictions = frame_probabilities.argmax(dim=-1).cpu().data.numpy()
-            output_dict["frame_tags"] = [
-                self.vocab.get_token_from_index(f, namespace="frames_labels")
-                for f in frame_predictions
+        if self.restrict:
+            frame_probabilities = frame_probabilities.cpu().data.numpy()
+            lemmas = output_dict["lemma"]
+            candidate_labels = [self.lemma_frame_dict.get(l, []) for l in lemmas]
+            # clear candidates from unknowns
+            label_set = set(
+                k for k in self.vocab.get_token_to_index_vocabulary("frames_labels").keys()
+            )
+            candidate_labels_ids = [
+                [
+                    self.vocab.get_token_index(l, namespace="frames_labels")
+                    for l in cl
+                    if l in label_set
+                ]
+                for cl in candidate_labels
             ]
-            return output_dict
-        frame_probabilities = frame_probabilities.cpu().data.numpy()
-        lemmas = output_dict["lemma"]
-        candidate_labels = [self.lemma_frame_dict.get(l, []) for l in lemmas]
-        # clear candidates from unknowns
-        label_set = set(k for k in self.vocab.get_token_to_index_vocabulary("frames_labels").keys())
-        candidate_labels_ids = [
-            [self.vocab.get_token_index(l, namespace="frames_labels") for l in cl if l in label_set]
-            for cl in candidate_labels
-        ]
 
-        frame_predictions = []
-        for cl, fp in zip(candidate_labels_ids, frame_probabilities):
-            # restrict candidates from verbatlas inventory
-            fp_candidates = np.take(fp, cl)
-            if fp_candidates.size > 0:
-                frame_predictions.append(cl[fp_candidates.argmax(axis=-1)])
-            else:
-                frame_predictions.append(fp.argmax(axis=-1))
+            frame_predictions = []
+            for cl, fp in zip(candidate_labels_ids, frame_probabilities):
+                # restrict candidates from verbatlas inventory
+                fp_candidates = np.take(fp, cl)
+                if fp_candidates.size > 0:
+                    frame_predictions.append(cl[fp_candidates.argmax(axis=-1)])
+                else:
+                    frame_predictions.append(fp.argmax(axis=-1))
+        else:
+            frame_predictions = frame_probabilities.argmax(dim=-1).cpu().data.numpy()
 
         output_dict["frame_tags"] = [
             self.vocab.get_token_from_index(f, namespace="frames_labels") for f in frame_predictions
         ]
+        output_dict["frame_scores"] = [
+            fp[f] for f, fp in zip(frame_predictions, frame_probabilities)
+        ]
         return output_dict
 
     @overrides
-    def decode(
-        self, output_dict: Dict[str, torch.Tensor], restrict: bool = True
-    ) -> Dict[str, torch.Tensor]:
+    def decode(self, output_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+        # if restrict:
+        #     output_dict = self._mask_args(output_dict)
         output_dict = super().decode(output_dict)
-        output_dict = self.decode_frames(output_dict, restrict)
+        output_dict = self.decode_frames(output_dict)
+        return output_dict
+
+    def _mask_args(self, output_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+        class_probs = output_dict["class_probabilities"]
+        # TODO mask if score is less than a threshold
         return output_dict
 
     def get_metrics(self, reset: bool = False):
