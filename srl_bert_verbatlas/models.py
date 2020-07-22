@@ -1,5 +1,4 @@
 import os
-from collections import defaultdict
 import pathlib
 from typing import Dict, List, Optional, Any, Union
 
@@ -11,7 +10,7 @@ from allennlp.models.model import Model
 from allennlp.models import SrlBert
 from allennlp.models.srl_util import convert_bio_tags_to_conll_format
 from allennlp.nn import InitializerApplicator, RegularizerApplicator
-from allennlp.nn.util import get_lengths_from_binary_sequence_mask, viterbi_decode
+from allennlp.nn.util import get_lengths_from_binary_sequence_mask, viterbi_decode, get_device_of
 from allennlp.nn.util import get_text_field_mask, sequence_cross_entropy_with_logits
 from allennlp.training.metrics.fbeta_measure import FBetaMeasure
 from allennlp.training.metrics.srl_eval_scorer import (
@@ -21,23 +20,11 @@ from allennlp.training.metrics.srl_eval_scorer import (
 from overrides import overrides
 from pytorch_pretrained_bert.modeling import BertModel
 from torch.nn.modules import Linear, Dropout
+from srl_bert_verbatlas.utils import load_lemma_frame, load_role_frame
 
 
 LEMMA_FRAME_PATH = pathlib.Path(__file__).resolve().parent / "resources" / "lemma2frame.csv"
-
-
-def read_dictionary(filename: pathlib.Path) -> Dict:
-    """
-    Open a dictionary from file, in the format key -> value
-    :param filename: file to read.
-    :return: a dictionary.
-    """
-    dictionary = defaultdict(list)
-    with open(filename) as file:
-        for l in file:
-            k, *v = l.split()
-            dictionary[k] += v
-    return dictionary
+FRAME_ROLE_PATH = pathlib.Path(__file__).resolve().parent / "resources" / "frame2role.csv"
 
 
 @Model.register("srl_bert_verbatlas")
@@ -76,8 +63,10 @@ class SrlBertVerbatlas(SrlBert):
         restrict: bool = False,
     ) -> None:
         Model.__init__(self, vocab, regularizer)
-        self.lemma_frame_dict = read_dictionary(LEMMA_FRAME_PATH)
+        self.lemma_frame_dict = load_lemma_frame(LEMMA_FRAME_PATH)
+        self.frame_role_dict = load_role_frame(FRAME_ROLE_PATH)
         self.restrict = restrict
+
         if isinstance(bert_model, str):
             self.bert_model = BertModel.from_pretrained(bert_model)
         else:
@@ -234,9 +223,7 @@ class SrlBertVerbatlas(SrlBert):
             lemmas = output_dict["lemma"]
             candidate_labels = [self.lemma_frame_dict.get(l, []) for l in lemmas]
             # clear candidates from unknowns
-            label_set = set(
-                k for k in self.vocab.get_token_to_index_vocabulary("frames_labels").keys()
-            )
+            label_set = set(k for k in self._get_label_tokens("frames_labels"))
             candidate_labels_ids = [
                 [
                     self.vocab.get_token_index(l, namespace="frames_labels")
@@ -267,15 +254,30 @@ class SrlBertVerbatlas(SrlBert):
 
     @overrides
     def decode(self, output_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
-        # if restrict:
-        #     output_dict = self._mask_args(output_dict)
-        output_dict = super().decode(output_dict)
         output_dict = self.decode_frames(output_dict)
+        if self.restrict:
+            output_dict = self._mask_args(output_dict)
+        output_dict = super().decode(output_dict)
         return output_dict
 
     def _mask_args(self, output_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         class_probs = output_dict["class_probabilities"]
-        # TODO mask if score is less than a threshold
+        device = get_device_of(class_probs)
+        lemmas = output_dict["lemma"]
+        frames = output_dict["frame_tags"]
+        candidate_mask = torch.ones_like(class_probs, dtype=torch.bool).to(device)
+        for i, (l, f) in enumerate(zip(lemmas, frames)):
+            candidates = self.frame_role_dict.get((l, f), [])
+            if candidates:
+                canidate_ids = [
+                    self.vocab.get_token_index(r, namespace="labels") for r in candidates
+                ]
+                canidate_ids = torch.tensor(canidate_ids).to(device)
+                canidate_ids = canidate_ids.repeat(candidate_mask.shape[1], 1)
+                candidate_mask[i].scatter_(1, canidate_ids, False)
+            else:
+                candidate_mask[i].fill_(False)
+        class_probs.masked_fill_(candidate_mask, 0)
         return output_dict
 
     def get_metrics(self, reset: bool = False):
@@ -283,7 +285,6 @@ class SrlBertVerbatlas(SrlBert):
             # Return an empty dictionary if ignoring the
             # span metric
             return {}
-
         else:
             metric_dict = self.span_metric.get_metric(reset=reset)
             frame_metric_dict = self.f1_frame_metric.get_metric(reset=reset)
@@ -294,3 +295,9 @@ class SrlBertVerbatlas(SrlBert):
             }
             frame_metric_dict = {x + "_frame": y for x, y in frame_metric_dict.items()}
             return {**metric_dict_filtered, **frame_metric_dict}
+
+    def _get_label_tokens(self, namespace: str = "labels"):
+        return self.vocab.get_token_to_index_vocabulary(namespace).keys()
+
+    def _get_label_ids(self, namespace: str = "labels"):
+        return self.vocab.get_index_to_token_vocabulary(namespace).keys()
