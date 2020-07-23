@@ -27,7 +27,7 @@ LEMMA_FRAME_PATH = pathlib.Path(__file__).resolve().parent / "resources" / "lemm
 FRAME_ROLE_PATH = pathlib.Path(__file__).resolve().parent / "resources" / "frame2role.csv"
 
 
-@Model.register("srl_transformers")
+@Model.register("transformer_srl")
 class SrlTransformers(SrlBert):
     """
 
@@ -309,4 +309,4 @@ class SrlTransformers(SrlBert):
     def _get_label_ids(self, namespace: str = "labels"):
         return self.vocab.get_index_to_token_vocabulary(namespace).keys()
 
-    default_predictor = "srl_transformers"
+    default_predictor = "transformer_srl"

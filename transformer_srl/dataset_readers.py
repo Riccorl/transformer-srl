@@ -126,7 +126,7 @@ def _convert_frames_indices_to_wordpiece_indices(
         return ["O"] + new_frame_labels + ["O"]
 
 
-@DatasetReader.register("srl_transformers")
+@DatasetReader.register("transformer_srl")
 class SrlTransformersReader(SrlReader):
     """
     This DatasetReader is designed to read in the English OntoNotes v5.0 data

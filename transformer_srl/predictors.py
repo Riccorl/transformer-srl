@@ -13,7 +13,7 @@ from overrides import overrides
 from spacy.tokens import Doc
 
 
-@Predictor.register("srl_transformers")
+@Predictor.register("transformer_srl")
 class SrlTransformersPredictor(SemanticRoleLabelerPredictor):
     def __init__(
         self, model: Model, dataset_reader: DatasetReader, language: str = "en_core_web_sm",

@@ -1,6 +1,6 @@
 {
     "dataset_reader": {
-      "type": "srl_transformers",
+      "type": "transformer_srl",
       "bert_model_name": "xlm-roberta-base",
     },
 
@@ -15,7 +15,7 @@
     "validation_data_path": std.extVar("SRL_VALIDATION_DATA_PATH"),
 
     "model": {
-        "type": "srl_transformers",
+        "type": "transformer_srl",
         "embedding_dropout": 0.1,
         "bert_model": "xlm-roberta-base",
     },
