@@ -1,6 +1,7 @@
-from typing import Dict, List, Any, Union
 import os
+import pathlib
 from collections import defaultdict
+from typing import Dict, List, Any, Union
 
 import numpy as np
 import torch
@@ -19,7 +20,8 @@ from allennlp_models.structured_prediction.metrics.srl_eval_scorer import (
 from overrides import overrides
 from torch.nn.modules import Linear, Dropout
 from transformers import AutoModel
-from srl_bert_verbatlas.utils import load_lemma_frame, load_role_frame
+
+from srl_transformers.utils import load_lemma_frame, load_role_frame
 
 LEMMA_FRAME_PATH = pathlib.Path(__file__).resolve().parent / "resources" / "lemma2frame.csv"
 FRAME_ROLE_PATH = pathlib.Path(__file__).resolve().parent / "resources" / "frame2role.csv"

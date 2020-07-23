@@ -5,7 +5,7 @@ from allennlp.common.file_utils import cached_path
 from allennlp.data.dataset_readers.dataset_reader import DatasetReader
 from allennlp.data.fields import Field, TextField, SequenceLabelField, MetadataField
 from allennlp.data.instance import Instance
-from allennlp.data.token_indexers import SingleIdTokenIndexer, TokenIndexer, PretrainedTransformerIndexer
+from allennlp.data.token_indexers import TokenIndexer, PretrainedTransformerIndexer
 from allennlp.data.tokenizers import Token
 from allennlp_models.common.ontonotes import Ontonotes, OntonotesSentence
 from allennlp_models.structured_prediction import SrlReader
@@ -144,7 +144,7 @@ class SrlTransformersReader(SrlReader):
 
     token_indexers : `Dict[str, TokenIndexer]`, optional
         We similarly use this for both the premise and the hypothesis.  See :class:`TokenIndexer`.
-        Default is `{"tokens": SingleIdTokenIndexer()}`.
+        Default is `{"tokens": PretrainedTransformerIndexer()}`.
     domain_identifier : `str`, (default = `None`)
         A string denoting a sub-domain of the Ontonotes 5.0 dataset to use. If present, only
         conll files under paths containing this domain identifier will be processed.

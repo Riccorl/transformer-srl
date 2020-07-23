@@ -5,7 +5,7 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
     name="srl_transformers",  # Replace with your own username
-    version="1.3",
+    version="1.3.1",
     author="Riccardo Orlando",
     author_email="orlandoricc@gmail.com",
     description="SRL Transformer model",
