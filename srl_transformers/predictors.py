@@ -23,8 +23,22 @@ class SrlTransformersPredictor(SemanticRoleLabelerPredictor):
     @staticmethod
     def make_srl_string(words: List[str], tags: List[str], frame: str) -> str:
         srl_string = super().make_srl_string(words, tags)
-        srl_string = srl_string.replace("B-V", "B-" + frame)
+        srl_string = srl_string.replace("[V", "[" + frame)
         return srl_string
+
+    @overrides
+    def tokens_to_instances(self, tokens):
+        words = [token.text for token in tokens]
+        instances: List[Instance] = []
+        for i, word in enumerate(tokens):
+            if word.pos_ == "VERB":
+                verb_labels = [0 for _ in words]
+                verb_labels[i] = 1
+                instance = self._dataset_reader.text_to_instance(
+                    tokens, verb_labels, lemmas=[word.lemma_]
+                )
+                instances.append(instance)
+        return instances
 
     @overrides
     def predict_batch_json(self, inputs: List[JsonDict]) -> List[JsonDict]:
@@ -83,6 +97,7 @@ class SrlTransformersPredictor(SemanticRoleLabelerPredictor):
                     "description": description,
                     "tags": tags,
                     "frame": frame,
+                    "frame_scores": output["frame_scores"],
                     "lemma": output["lemma"],
                 }
                 return_dicts[sentence_index]["verbs"].append(verb_dict)
@@ -103,6 +118,7 @@ class SrlTransformersPredictor(SemanticRoleLabelerPredictor):
                 "description": description,
                 "tags": tags,
                 "frame": frame,
+                "frame_score": output["frame_scores"],
                 "lemma": output["lemma"],
             }
             results["verbs"].append(verb_dict)
@@ -119,6 +135,7 @@ class SrlTransformersPredictor(SemanticRoleLabelerPredictor):
         frozen: bool = True,
         import_plugins: bool = True,
         language: str = "en_core_web_sm",
+        restrict: bool = False,
     ) -> "Predictor":
         if import_plugins:
             plugins.import_plugins()
@@ -128,6 +145,7 @@ class SrlTransformersPredictor(SemanticRoleLabelerPredictor):
             dataset_reader_to_load=dataset_reader_to_load,
             frozen=frozen,
             language=language,
+            restrict=restrict,
         )
 
     @classmethod
@@ -138,6 +156,7 @@ class SrlTransformersPredictor(SemanticRoleLabelerPredictor):
         dataset_reader_to_load: str = "validation",
         frozen: bool = True,
         language: str = "en_core_web_sm",
+        restrict: bool = False,
     ) -> "Predictor":
         # Duplicate the config so that the config inside the archive doesn't get consumed
         config = archive.config.duplicate()
@@ -157,6 +176,7 @@ class SrlTransformersPredictor(SemanticRoleLabelerPredictor):
         dataset_reader = DatasetReader.from_params(dataset_reader_params)
 
         model = archive.model
+        model.restrict = restrict
         if frozen:
             model.eval()
 

@@ -19,24 +19,10 @@ from allennlp_models.structured_prediction.metrics.srl_eval_scorer import (
 from overrides import overrides
 from torch.nn.modules import Linear, Dropout
 from transformers import AutoModel
+from srl_bert_verbatlas.utils import load_lemma_frame, load_role_frame
 
-LEMMA_FRAME_PATH = os.path.abspath(
-    os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "resources", "lemma2frame.csv")
-)
-
-
-def read_dictionary(filename: str) -> Dict:
-    """
-    Open a dictionary from file, in the format key -> value
-    :param filename: file to read.
-    :return: a dictionary.
-    """
-    dictionary = defaultdict(list)
-    with open(filename) as file:
-        for l in file:
-            k, *v = l.split()
-            dictionary[k] += v
-    return dictionary
+LEMMA_FRAME_PATH = pathlib.Path(__file__).resolve().parent / "resources" / "lemma2frame.csv"
+FRAME_ROLE_PATH = pathlib.Path(__file__).resolve().parent / "resources" / "frame2role.csv"
 
 
 @Model.register("srl_transformers")
@@ -69,12 +55,15 @@ class SrlTransformers(SrlBert):
         label_smoothing: float = None,
         ignore_span_metric: bool = False,
         srl_eval_path: str = DEFAULT_SRL_EVAL_PATH,
+        restrict: bool = False,
         **kwargs,
     ) -> None:
         # bypass SrlBert constructor
         Model.__init__(self, vocab, **kwargs)
-        # load (lemma, frames) dictionary
-        self.lemm_frame_dict = read_dictionary(LEMMA_FRAME_PATH)
+        self.lemma_frame_dict = load_lemma_frame(LEMMA_FRAME_PATH)
+        self.frame_role_dict = load_role_frame(FRAME_ROLE_PATH)
+        self.restrict = restrict
+
         if isinstance(bert_model, str):
             self.bert_model = AutoModel.from_pretrained(bert_model)
         else:
@@ -199,7 +188,9 @@ class SrlTransformers(SrlBert):
                 ]
                 batch_sentences = [example_metadata["words"] for example_metadata in metadata]
                 # Get the BIO tags from make_output_human_readable()
-                batch_bio_predicted_tags = self.make_output_human_readable(output_dict, False).pop("tags")
+                batch_bio_predicted_tags = self.make_output_human_readable(output_dict, False).pop(
+                    "tags"
+                )
                 from allennlp_models.structured_prediction.models.srl import (
                     convert_bio_tags_to_conll_format,
                 )
@@ -225,40 +216,40 @@ class SrlTransformers(SrlBert):
             output_dict["loss"] = (role_loss + frame_loss) / 2
         return output_dict
 
-    def decode_frames(
-        self, output_dict: Dict[str, torch.Tensor], restrict: bool = True
-    ) -> Dict[str, torch.Tensor]:
+    def decode_frames(self, output_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         # frame prediction
         frame_probabilities = output_dict["frame_probabilities"]
-        if not restrict:
-            frame_predictions = frame_probabilities.argmax(dim=-1).cpu().data.numpy()
-            output_dict["frame_tags"] = [
-                self.vocab.get_token_from_index(f, namespace="frames_labels")
-                for f in frame_predictions
+        if self.restrict:
+            frame_probabilities = frame_probabilities.cpu().data.numpy()
+            lemmas = output_dict["lemma"]
+            candidate_labels = [self.lemma_frame_dict.get(l, []) for l in lemmas]
+            # clear candidates from unknowns
+            label_set = set(k for k in self._get_label_tokens("frames_labels"))
+            candidate_labels_ids = [
+                [
+                    self.vocab.get_token_index(l, namespace="frames_labels")
+                    for l in cl
+                    if l in label_set
+                ]
+                for cl in candidate_labels
             ]
-            return output_dict
-        frame_probabilities = frame_probabilities.cpu().data.numpy()
-        lemmas = output_dict["lemmas"]
-        candidate_labels = [self.lemm_frame_dict.get(l, []) for l in lemmas]
-        # clear candidates from unknowns
-        label_set = set(k for k in self.vocab.get_token_to_index_vocabulary("frames_labels").keys())
-        candidate_labels_ids = [
-            self.vocab.get_token_index(l, namespace="frames_labels")
-            for cl in candidate_labels
-            for l in cl
-            if l in label_set
-        ]
-        frame_predictions = []
-        for cl, fp in zip(candidate_labels_ids, frame_probabilities):
-            # restrict candidates from verbatlas inventory
-            fp_candidates = np.take(fp, cl)
-            if fp_candidates.size > 0:
-                frame_predictions.append(fp_candidates.argmax(dim=-1))
-            else:
-                frame_predictions.append(fp.argmax(dim=-1))
+
+            frame_predictions = []
+            for cl, fp in zip(candidate_labels_ids, frame_probabilities):
+                # restrict candidates from verbatlas inventory
+                fp_candidates = np.take(fp, cl)
+                if fp_candidates.size > 0:
+                    frame_predictions.append(cl[fp_candidates.argmax(axis=-1)])
+                else:
+                    frame_predictions.append(fp.argmax(axis=-1))
+        else:
+            frame_predictions = frame_probabilities.argmax(dim=-1).cpu().data.numpy()
 
         output_dict["frame_tags"] = [
             self.vocab.get_token_from_index(f, namespace="frames_labels") for f in frame_predictions
+        ]
+        output_dict["frame_scores"] = [
+            fp[f] for f, fp in zip(frame_predictions, frame_probabilities)
         ]
         return output_dict
 
@@ -266,8 +257,30 @@ class SrlTransformers(SrlBert):
     def make_output_human_readable(
         self, output_dict: Dict[str, torch.Tensor], restrict: bool = True
     ) -> Dict[str, torch.Tensor]:
+        output_dict = self.decode_frames(output_dict)
+        if self.restrict:
+            output_dict = self._mask_args(output_dict)
         output_dict = super().make_output_human_readable(output_dict)
-        self.decode_frames(output_dict, restrict)
+        return output_dict
+
+    def _mask_args(self, output_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+        class_probs = output_dict["class_probabilities"]
+        device = get_device_of(class_probs)
+        lemmas = output_dict["lemma"]
+        frames = output_dict["frame_tags"]
+        candidate_mask = torch.ones_like(class_probs, dtype=torch.bool).to(device)
+        for i, (l, f) in enumerate(zip(lemmas, frames)):
+            candidates = self.frame_role_dict.get((l, f), [])
+            if candidates:
+                canidate_ids = [
+                    self.vocab.get_token_index(r, namespace="labels") for r in candidates
+                ]
+                canidate_ids = torch.tensor(canidate_ids).to(device)
+                canidate_ids = canidate_ids.repeat(candidate_mask.shape[1], 1)
+                candidate_mask[i].scatter_(1, canidate_ids, False)
+            else:
+                candidate_mask[i].fill_(False)
+        class_probs.masked_fill_(candidate_mask, 0)
         return output_dict
 
     @overrides
@@ -287,5 +300,11 @@ class SrlTransformers(SrlBert):
             }
             frame_metric_dict = {x + "_frame": y for x, y in frame_metric_dict.items()}
             return {**metric_dict_filtered, **frame_metric_dict}
+
+    def _get_label_tokens(self, namespace: str = "labels"):
+        return self.vocab.get_token_to_index_vocabulary(namespace).keys()
+
+    def _get_label_ids(self, namespace: str = "labels"):
+        return self.vocab.get_index_to_token_vocabulary(namespace).keys()
 
     default_predictor = "srl_transformers"

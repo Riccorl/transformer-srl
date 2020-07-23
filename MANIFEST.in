@@ -1,3 +1,3 @@
 include requirements.txt
 recursive-include training_config *
-recursive-include resources *
+recursive-include srl_transformers/resources *

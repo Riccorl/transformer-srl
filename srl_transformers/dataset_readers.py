@@ -5,7 +5,7 @@ from allennlp.common.file_utils import cached_path
 from allennlp.data.dataset_readers.dataset_reader import DatasetReader
 from allennlp.data.fields import Field, TextField, SequenceLabelField, MetadataField
 from allennlp.data.instance import Instance
-from allennlp.data.token_indexers import SingleIdTokenIndexer, TokenIndexer
+from allennlp.data.token_indexers import SingleIdTokenIndexer, TokenIndexer, PretrainedTransformerIndexer
 from allennlp.data.tokenizers import Token
 from allennlp_models.common.ontonotes import Ontonotes, OntonotesSentence
 from allennlp_models.structured_prediction import SrlReader
@@ -167,7 +167,7 @@ class SrlTransformersReader(SrlReader):
         **kwargs,
     ) -> None:
         DatasetReader.__init__(self, **kwargs)
-        self._token_indexers = token_indexers or {"tokens": SingleIdTokenIndexer()}
+        self._token_indexers = token_indexers or {"tokens": PretrainedTransformerIndexer(bert_model_name)}
         self._domain_identifier = domain_identifier
 
         self.bert_tokenizer = AutoTokenizer.from_pretrained(bert_model_name)
@@ -225,7 +225,6 @@ class SrlTransformersReader(SrlReader):
         wordpieces = (
             [self.bert_tokenizer.cls_token] + word_piece_tokens + [self.bert_tokenizer.sep_token]
         )
-
         return wordpieces, end_offsets, start_offsets
 
     @overrides
