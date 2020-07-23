@@ -4,14 +4,14 @@ with open("README.md", "r") as fh:
     long_description = fh.read()
 
 setuptools.setup(
-    name="srl_transformers",  # Replace with your own username
+    name="transformer_srl",  # Replace with your own username
     version="1.3.1",
     author="Riccardo Orlando",
     author_email="orlandoricc@gmail.com",
     description="SRL Transformer model",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/Riccorl/srl_transformers",
+    url="https://github.com/Riccorl/transformer_srl",
     packages=setuptools.find_packages(),
     include_package_data=True,
     classifiers=[

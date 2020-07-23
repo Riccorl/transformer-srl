@@ -24,4 +24,4 @@ done
 
 echo "GPU finally free, training..."
 
-allennlp train $CONFIG -s models/srl_bert_base_pb --include-package allennlp_models # srl_verbatlas
+allennlp train $CONFIG -s models/bert_base_pb --include-package allennlp_models # srl_verbatlas
