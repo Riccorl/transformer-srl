@@ -176,8 +176,8 @@ class SrlTransformersPredictor(SemanticRoleLabelerPredictor):
         dataset_reader = DatasetReader.from_params(dataset_reader_params)
 
         model = archive.model
-        model.restrict = restrict
         if frozen:
+            model.restrict = restrict
             model.eval()
 
         return predictor_class(model, dataset_reader, language)
