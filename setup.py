@@ -21,7 +21,7 @@ setuptools.setup(
     ],
     install_requires=[
         "allennlp>=1.1.0rc2.dev20200722",
-        "allennlp_models>=1.1.0rc2.dev20200722"
+        "allennlp_models>=1.1.0rc2.dev20200722",
         "spacy==2.1.9"
     ],
     python_requires=">=3.6",
