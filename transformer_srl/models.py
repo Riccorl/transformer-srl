@@ -172,7 +172,7 @@ class SrlTransformers(SrlBert):
         words, verbs, offsets = zip(*[(x["words"], x["verb"], x["offsets"]) for x in metadata])
         lemmas = [l for x in metadata for l in x["lemmas"]]
         output_dict["words"] = list(words)
-        output_dict["lemmas"] = list(lemmas)
+        output_dict["lemma"] = list(lemmas)
         output_dict["verb"] = list(verbs)
         output_dict["wordpiece_offsets"] = list(offsets)
 
