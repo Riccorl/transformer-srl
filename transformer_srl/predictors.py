@@ -22,7 +22,7 @@ class SrlTransformersPredictor(SemanticRoleLabelerPredictor):
 
     @staticmethod
     def make_srl_string(words: List[str], tags: List[str], frame: str) -> str:
-        srl_string = super().make_srl_string(words, tags)
+        srl_string = SemanticRoleLabelerPredictor.make_srl_string(words, tags)
         srl_string = srl_string.replace("[V", "[" + frame)
         return srl_string
 
