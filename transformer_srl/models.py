@@ -9,7 +9,7 @@ import torch.nn.functional as F
 from allennlp.data import TextFieldTensors, Vocabulary
 from allennlp.models.model import Model
 from allennlp.nn import InitializerApplicator, util
-from allennlp.nn.util import get_lengths_from_binary_sequence_mask, viterbi_decode
+from allennlp.nn.util import get_lengths_from_binary_sequence_mask, viterbi_decode, get_device_of
 from allennlp.nn.util import get_text_field_mask, sequence_cross_entropy_with_logits
 from allennlp.training.metrics.fbeta_measure import FBetaMeasure
 from allennlp_models.structured_prediction import SrlBert
