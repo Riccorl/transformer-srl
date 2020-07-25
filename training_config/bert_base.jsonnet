@@ -38,7 +38,7 @@
             "num_serialized_models_to_keep": 2,
         },
         "grad_norm": 1.0,
-        "num_epochs": 20,
+        "num_epochs": 15,
         "validation_metric": "+f1_role",
         "cuda_device": 0,
     },
