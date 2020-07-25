@@ -46,8 +46,7 @@ conllu_fields = [
     "feats",
     "head",
     "deprel",
-    "deps",
-    "misc",
+    "is_frame",
     "frame",
     "roles",
 ]
@@ -110,7 +109,7 @@ class SrlUdpDatasetReader(DatasetReader):
                         frame_lables = ["O"] * len(frames)
                         frame_lables[i] = frame
                         # clean V tag from role
-                        role_labels = [r if r not in ["V", "_"] else "O" for r in role]
+                        role_labels = [r if r != "_" else "O" for r in role]
                         lemma = lemmas[i]
                         yield self.text_to_instance(
                             words, verb_indicator, lemma, frame_lables, role_labels
