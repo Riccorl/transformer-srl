@@ -5,14 +5,177 @@ from allennlp.common.file_utils import cached_path
 from allennlp.data.dataset_readers.dataset_reader import DatasetReader
 from allennlp.data.fields import Field, TextField, SequenceLabelField, MetadataField
 from allennlp.data.instance import Instance
-from allennlp.data.token_indexers import TokenIndexer, PretrainedTransformerIndexer
+from allennlp.data.token_indexers import (
+    TokenIndexer,
+    PretrainedTransformerIndexer,
+    PretrainedTransformerMismatchedIndexer,
+)
 from allennlp.data.tokenizers import Token
 from allennlp_models.common.ontonotes import Ontonotes, OntonotesSentence
 from allennlp_models.structured_prediction import SrlReader
 from overrides import overrides
 from transformers import AutoTokenizer
 
+from typing import Dict, Tuple, List
+import logging
+
+from conllu import parse_incr
+
+
 logger = logging.getLogger(__name__)
+
+"""
+ID: Word index, integer starting at 1 for each new sentence; may be a range for tokens with multiple words.
+FORM: Word form or punctuation symbol.
+LEMMA: Lemma or stem of word form.
+UPOSTAG: Universal part-of-speech tag drawn from our revised version of the Google universal POS tags.
+XPOSTAG: Language-specific part-of-speech tag; underscore if not available.
+FEATS: List of morphological features from the universal feature inventory or from a defined language-specific extension; underscore if not available.
+HEAD: Head of the current token, which is either a value of ID or zero (0).
+DEPREL: Universal Stanford dependency relation to the HEAD (root iff HEAD = 0) or a defined language-specific subtype of one.
+DEPS: List of secondary dependencies (head-deprel pairs).
+MISC: Any other annotation.
+"""
+
+conllu_fields = [
+    "id",
+    "form",
+    "lemma",
+    "upostag",
+    "xpostag",
+    "feats",
+    "head",
+    "deprel",
+    "deps",
+    "misc",
+    "frame",
+    "roles",
+]
+
+
+@DatasetReader.register("transformer_srl_dep")
+class SrlUdpDatasetReader(DatasetReader):
+    """
+    Reads a file in the conllu Universal Dependencies format.
+
+    # Parameters
+
+    token_indexers : `Dict[str, TokenIndexer]`, optional (default=`{"tokens": PretrainedTransformerIndexer()}`)
+        The token indexers to be applied to the words TextField.
+    use_language_specific_pos : `bool`, optional (default = `False`)
+        Whether to use UD POS tags, or to use the language specific POS tags
+        provided in the conllu format.
+    tokenizer : `Tokenizer`, optional (default = `None`)
+        A tokenizer to use to split the text. This is useful when the tokens that you pass
+        into the model need to have some particular attribute. Typically it is not necessary.
+    """
+
+    def __init__(
+        self, token_indexers: Dict[str, TokenIndexer] = None, model_name: str = None, **kwargs,
+    ) -> None:
+        super().__init__(**kwargs)
+        self.indexer = {"tokens": PretrainedTransformerMismatchedIndexer(model_name)}
+
+    @overrides
+    def _read(self, file_path: str):
+        # if `file_path` is a URL, redirect to the cache
+        file_path = cached_path(file_path)
+        with open(file_path, "r") as conllu_file:
+            logger.info("Reading UD instances from conllu dataset at: %s", file_path)
+
+            for annotation in parse_incr(
+                conllu_file, fields=conllu_fields, field_parsers={"roles": lambda line, i: line[i:]}
+            ):
+                # CoNLLU annotations sometimes add back in words that have been elided
+                # in the original sentence; we remove these, as we're just predicting
+                # dependencies for the original sentence.
+                # We filter by integers here as elided words have a non-integer word id,
+                # as parsed by the conllu python library.
+                annotation = [x for x in annotation if isinstance(x["id"], int)]
+
+                words = [x["form"] for x in annotation]
+                lemmas = [x["lemma"] for x in annotation]
+
+                # there is no frame/role in the sentence, skip
+                if "frame" not in annotation[0] or "roles" not in annotation[0]:
+                    continue
+                frames = [x["frame"] for x in annotation]
+                roles = [x["roles"] for x in annotation]
+                # transpose rolses, to have a list of roles per frame
+                roles = list(map(list, zip(*roles)))
+                for i, (frame, role) in enumerate(zip(frames, roles)):
+                    if frame != "_":
+                        verb_indicator = [0] * len(frames)
+                        verb_indicator[i] = 1
+                        frame_lables = ["O"] * len(frames)
+                        frame_lables[i] = frame
+                        # clean V tag from role
+                        role_labels = [r if r not in ["V", "_"] else "O" for r in role]
+                        lemma = lemmas[i]
+                        yield self.text_to_instance(
+                            words, verb_indicator, lemma, frame_lables, role_labels
+                        )
+
+    @overrides
+    def text_to_instance(
+        self,  # type: ignore
+        words: List[str],
+        verb_label: List[int],
+        lemmas: List[str] = None,
+        frames: List[str] = None,
+        tags: List[str] = None,
+    ) -> Instance:
+
+        """
+        # Parameters
+
+        words : `List[str]`, required.
+            The words in the sentence to be encoded.
+        upos_tags : `List[str]`, required.
+            The universal dependencies POS tags for each word.
+        dependencies : `List[Tuple[str, int]]`, optional (default = `None`)
+            A list of  (head tag, head index) tuples. Indices are 1 indexed,
+            meaning an index of 0 corresponds to that word being the root of
+            the dependency tree.
+
+        # Returns
+
+        An instance containing words, upos tags, dependency head tags and head
+        indices as fields.
+        """
+        fields: Dict[str, Field] = {}
+        tokens = [Token(t) for t in words]
+
+        text_field = TextField(tokens, token_indexers=self.indexer)
+        metadata_dict: Dict[str, Any] = {}
+
+        # adds cls and sep verb indicator
+        verb_indicator = SequenceLabelField(verb_label, text_field)
+
+        fields: Dict[str, Field] = {
+            "tokens": text_field,
+            "verb_indicator": verb_indicator,
+        }
+
+        verb_index = verb_label.index(1)
+        verb = tokens[verb_index].text
+
+        metadata_dict["words"] = [x.text for x in tokens]
+        metadata_dict["lemmas"] = lemmas
+        metadata_dict["verb"] = verb
+        metadata_dict["verb_index"] = verb_index
+
+        if tags:
+            # adds cls and sep verb indicator
+            fields["tags"] = SequenceLabelField(tags, text_field)
+            fields["frame_tags"] = SequenceLabelField(
+                frames, text_field, label_namespace="frames_labels"
+            )
+            metadata_dict["gold_tags"] = tags
+            metadata_dict["gold_frame_tags"] = frames
+
+        fields["metadata"] = MetadataField(metadata_dict)
+        return Instance(fields)
 
 
 def _convert_tags_to_wordpiece_tags(tags: List[str], offsets: List[int]) -> List[str]:
@@ -126,8 +289,8 @@ def _convert_frames_indices_to_wordpiece_indices(
         return ["O"] + new_frame_labels + ["O"]
 
 
-@DatasetReader.register("transformer_srl")
-class SrlTransformersReader(SrlReader):
+@DatasetReader.register("transformer_srl_span")
+class SrlTransformersSpanReader(SrlReader):
     """
     This DatasetReader is designed to read in the English OntoNotes v5.0 data
     for semantic role labelling. It returns a dataset of instances with the
@@ -167,7 +330,9 @@ class SrlTransformersReader(SrlReader):
         **kwargs,
     ) -> None:
         DatasetReader.__init__(self, **kwargs)
-        self._token_indexers = token_indexers or {"tokens": PretrainedTransformerIndexer(bert_model_name)}
+        self._token_indexers = token_indexers or {
+            "tokens": PretrainedTransformerIndexer(bert_model_name)
+        }
         self._domain_identifier = domain_identifier
 
         self.bert_tokenizer = AutoTokenizer.from_pretrained(bert_model_name)
