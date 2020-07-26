@@ -1,13 +1,13 @@
 #!/bin/bash
-source /home/pollo/miniconda3/bin/activate allennlp-test
+source /Users/ric/miniconda3/bin/activate srl-mt
 
 # local
-DATASET="/mnt/d/Datasets/conll2012/conll-formatted-ontonotes-verbatlas-subset"
-PROJECT="/mnt/c/Users/rikkw/Desktop/Ric/Projects/transformer-srl"
+DATASET="data/UP_English-EWT"
+PROJECT="/Users/ric/Documents/ComputerScience/Projects/transformer-srl"
 
-export SRL_TRAIN_DATA_PATH="$DATASET/data/train"
-export SRL_VALIDATION_DATA_PATH="$DATASET/data/development"
+export SRL_TRAIN_DATA_PATH="$DATASET/en_ewt-up-train.conllu"
+export SRL_VALIDATION_DATA_PATH="$DATASET/en_ewt-up-dev.conllu"
 
-CONFIG="$PROJECT/training_config/bert_base.jsonnet"
+CONFIG="$PROJECT/training_config/bert_tiny_dep.jsonnet"
 
-allennlp train "$CONFIG" -s models/test --include-package transformer_srl --recover
+allennlp train "$CONFIG" -s models/test_dep --include-package transformer_srl --recover

@@ -9,7 +9,11 @@ import torch.nn.functional as F
 from allennlp.data import TextFieldTensors, Vocabulary
 from allennlp.models.model import Model
 from allennlp.nn import InitializerApplicator, util
-from allennlp.nn.util import get_lengths_from_binary_sequence_mask, viterbi_decode, get_device_of
+from allennlp.nn.util import (
+    get_lengths_from_binary_sequence_mask,
+    viterbi_decode,
+    get_device_of,
+)
 from allennlp.nn.util import get_text_field_mask, sequence_cross_entropy_with_logits
 from allennlp.training.metrics.fbeta_measure import FBetaMeasure
 from allennlp_models.structured_prediction import SrlBert
@@ -24,12 +28,16 @@ from transformers import AutoModel
 
 from transformer_srl.utils import load_lemma_frame, load_role_frame
 
-LEMMA_FRAME_PATH = pathlib.Path(__file__).resolve().parent / "resources" / "lemma2frame.csv"
-FRAME_ROLE_PATH = pathlib.Path(__file__).resolve().parent / "resources" / "frame2role.csv"
+LEMMA_FRAME_PATH = (
+    pathlib.Path(__file__).resolve().parent / "resources" / "lemma2frame.csv"
+)
+FRAME_ROLE_PATH = (
+    pathlib.Path(__file__).resolve().parent / "resources" / "frame2role.csv"
+)
 
 
 @Model.register("transformer_srl_dep")
-class TransformerSrlSpan(Model):
+class TransformerSrlDep(Model):
     """
 
     # Parameters
@@ -67,10 +75,10 @@ class TransformerSrlSpan(Model):
         self.frame_role_dict = load_role_frame(FRAME_ROLE_PATH)
         self.restrict = restrict
 
-        self.bert_embedder = PretrainedTransformerMismatchedEmbedder(
-            model_name, last_layer_only=False
-        )
-        self.transformer_dim = self.bert_embedder.get_output_dim()
+        if isinstance(model_name, str):
+            self.transformer = AutoModel.from_pretrained(model_name)
+        else:
+            self.transformer = model_name
         # loss
         self.role_criterion = torch.nn.CrossEntropyLoss()
         self.frame_criterion = torch.nn.CrossEntropyLoss()
@@ -81,8 +89,12 @@ class TransformerSrlSpan(Model):
         self.f1_role_metric = FBetaMeasure(average="micro")
         self.f1_frame_metric = FBetaMeasure(average="micro")
         # output layer
-        self.tag_projection_layer = Linear(self.transformer_dim, self.num_classes)
-        self.frame_projection_layer = Linear(self.transformer_dim, self.frame_num_classes)
+        self.tag_projection_layer = Linear(
+            self.transformer.config.hidden_size, self.num_classes
+        )
+        self.frame_projection_layer = Linear(
+            self.transformer.config.hidden_size, self.frame_num_classes
+        )
         self.embedding_dropout = Dropout(p=embedding_dropout)
         self._label_smoothing = label_smoothing
         initializer(self)
@@ -91,6 +103,7 @@ class TransformerSrlSpan(Model):
         self,
         tokens: TextFieldTensors,
         verb_indicator: torch.Tensor,
+        frame_indicator: torch.Tensor,
         metadata: List[Any],
         tags: torch.LongTensor = None,
         frame_tags: torch.LongTensor = None,
@@ -130,12 +143,16 @@ class TransformerSrlSpan(Model):
         loss : `torch.FloatTensor`, optional
             A scalar loss to be optimised.
         """
-        tokens = tokens["tokens"]
-        mask = tokens["mask"]
-        bert_embeddings = self.bert_embedder(**tokens)
+        mask = get_text_field_mask(tokens)
+        bert_embeddings, _ = self.transformer(
+            input_ids=util.get_token_ids_from_text_field_tensors(tokens),
+            token_type_ids=verb_indicator,
+            attention_mask=mask,
+        )
+
         # extract embeddings
         embedded_text_input = self.embedding_dropout(bert_embeddings)
-        frame_embeddings = embedded_text_input[verb_indicator == 1]
+        frame_embeddings = embedded_text_input[frame_indicator == 1]
         # get sizes
         batch_size, sequence_length, _ = embedded_text_input.size()
         # outputs
@@ -170,7 +187,7 @@ class TransformerSrlSpan(Model):
                 logits, tags, mask, label_smoothing=self._label_smoothing
             )
             # compute frame loss
-            frame_tags_filtered = frame_tags[verb_indicator == 1]
+            frame_tags_filtered = frame_tags[frame_indicator == 1]
             frame_loss = self.frame_criterion(frame_logits, frame_tags_filtered)
 
             self.f1_role_metric(role_probabilities, tags)
@@ -181,7 +198,9 @@ class TransformerSrlSpan(Model):
             output_dict["loss"] = (role_loss + frame_loss) / 2
         return output_dict
 
-    def decode_frames(self, output_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+    def decode_frames(
+        self, output_dict: Dict[str, torch.Tensor]
+    ) -> Dict[str, torch.Tensor]:
         # frame prediction
         frame_probabilities = output_dict["frame_probabilities"]
         if self.restrict:
@@ -211,7 +230,8 @@ class TransformerSrlSpan(Model):
             frame_predictions = frame_probabilities.argmax(dim=-1).cpu().data.numpy()
 
         output_dict["frame_tags"] = [
-            self.vocab.get_token_from_index(f, namespace="frames_labels") for f in frame_predictions
+            self.vocab.get_token_from_index(f, namespace="frames_labels")
+            for f in frame_predictions
         ]
         output_dict["frame_scores"] = [
             fp[f] for f, fp in zip(frame_predictions, frame_probabilities)
@@ -228,7 +248,9 @@ class TransformerSrlSpan(Model):
         output_dict = super().make_output_human_readable(output_dict)
         return output_dict
 
-    def _mask_args(self, output_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+    def _mask_args(
+        self, output_dict: Dict[str, torch.Tensor]
+    ) -> Dict[str, torch.Tensor]:
         class_probs = output_dict["class_probabilities"]
         device = get_device_of(class_probs)
         lemmas = output_dict["lemma"]
@@ -238,7 +260,8 @@ class TransformerSrlSpan(Model):
             candidates = self.frame_role_dict.get((l, f), [])
             if candidates:
                 canidate_ids = [
-                    self.vocab.get_token_index(r, namespace="labels") for r in candidates
+                    self.vocab.get_token_index(r, namespace="labels")
+                    for r in candidates
                 ]
                 canidate_ids = torch.tensor(canidate_ids).to(device)
                 canidate_ids = canidate_ids.repeat(candidate_mask.shape[1], 1)
@@ -325,7 +348,9 @@ class TransformerSrlSpan(SrlBert):
         else:
             self.span_metric = None
         self.f1_frame_metric = FBetaMeasure(average="micro")
-        self.tag_projection_layer = Linear(self.bert_model.config.hidden_size, self.num_classes)
+        self.tag_projection_layer = Linear(
+            self.bert_model.config.hidden_size, self.num_classes
+        )
         self.frame_projection_layer = Linear(
             self.bert_model.config.hidden_size, self.frame_num_classes
         )
@@ -414,7 +439,9 @@ class TransformerSrlSpan(SrlBert):
             "mask": mask,
         }
         # We add in the offsets here so we can compute the un-wordpieced tags.
-        words, verbs, offsets = zip(*[(x["words"], x["verb"], x["offsets"]) for x in metadata])
+        words, verbs, offsets = zip(
+            *[(x["words"], x["verb"], x["offsets"]) for x in metadata]
+        )
         lemmas = [l for x in metadata for l in x["lemmas"]]
         output_dict["words"] = list(words)
         output_dict["lemma"] = list(lemmas)
@@ -429,27 +456,35 @@ class TransformerSrlSpan(SrlBert):
             # compute frame loss
             frame_tags_filtered = frame_tags[frame_indicator == 1]
             frame_loss = self.frame_criterion(frame_logits, frame_tags_filtered)
-            if not self.ignore_span_metric and self.span_metric is not None and not self.training:
+            if (
+                not self.ignore_span_metric
+                and self.span_metric is not None
+                and not self.training
+            ):
                 batch_verb_indices = [
                     example_metadata["verb_index"] for example_metadata in metadata
                 ]
-                batch_sentences = [example_metadata["words"] for example_metadata in metadata]
+                batch_sentences = [
+                    example_metadata["words"] for example_metadata in metadata
+                ]
                 # Get the BIO tags from make_output_human_readable()
-                batch_bio_predicted_tags = self.make_output_human_readable(output_dict, False).pop(
-                    "tags"
-                )
+                batch_bio_predicted_tags = self.make_output_human_readable(
+                    output_dict, False
+                ).pop("tags")
                 from allennlp_models.structured_prediction.models.srl import (
                     convert_bio_tags_to_conll_format,
                 )
 
                 batch_conll_predicted_tags = [
-                    convert_bio_tags_to_conll_format(tags) for tags in batch_bio_predicted_tags
+                    convert_bio_tags_to_conll_format(tags)
+                    for tags in batch_bio_predicted_tags
                 ]
                 batch_bio_gold_tags = [
                     example_metadata["gold_tags"] for example_metadata in metadata
                 ]
                 batch_conll_gold_tags = [
-                    convert_bio_tags_to_conll_format(tags) for tags in batch_bio_gold_tags
+                    convert_bio_tags_to_conll_format(tags)
+                    for tags in batch_bio_gold_tags
                 ]
                 self.span_metric(
                     batch_verb_indices,
@@ -463,7 +498,9 @@ class TransformerSrlSpan(SrlBert):
             output_dict["loss"] = (role_loss + frame_loss) / 2
         return output_dict
 
-    def decode_frames(self, output_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+    def decode_frames(
+        self, output_dict: Dict[str, torch.Tensor]
+    ) -> Dict[str, torch.Tensor]:
         # frame prediction
         frame_probabilities = output_dict["frame_probabilities"]
         if self.restrict:
@@ -493,7 +530,8 @@ class TransformerSrlSpan(SrlBert):
             frame_predictions = frame_probabilities.argmax(dim=-1).cpu().data.numpy()
 
         output_dict["frame_tags"] = [
-            self.vocab.get_token_from_index(f, namespace="frames_labels") for f in frame_predictions
+            self.vocab.get_token_from_index(f, namespace="frames_labels")
+            for f in frame_predictions
         ]
         output_dict["frame_scores"] = [
             fp[f] for f, fp in zip(frame_predictions, frame_probabilities)
@@ -510,7 +548,9 @@ class TransformerSrlSpan(SrlBert):
         output_dict = super().make_output_human_readable(output_dict)
         return output_dict
 
-    def _mask_args(self, output_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+    def _mask_args(
+        self, output_dict: Dict[str, torch.Tensor]
+    ) -> Dict[str, torch.Tensor]:
         class_probs = output_dict["class_probabilities"]
         device = get_device_of(class_probs)
         lemmas = output_dict["lemma"]
@@ -520,7 +560,8 @@ class TransformerSrlSpan(SrlBert):
             candidates = self.frame_role_dict.get((l, f), [])
             if candidates:
                 canidate_ids = [
-                    self.vocab.get_token_index(r, namespace="labels") for r in candidates
+                    self.vocab.get_token_index(r, namespace="labels")
+                    for r in candidates
                 ]
                 canidate_ids = torch.tensor(canidate_ids).to(device)
                 canidate_ids = canidate_ids.repeat(candidate_mask.shape[1], 1)
@@ -543,7 +584,9 @@ class TransformerSrlSpan(SrlBert):
             # This can be a lot of metrics, as there are 3 per class.
             # we only really care about the overall metrics, so we filter for them here.
             metric_dict_filtered = {
-                x.split("-")[0] + "_role": y for x, y in metric_dict.items() if "overall" in x
+                x.split("-")[0] + "_role": y
+                for x, y in metric_dict.items()
+                if "overall" in x
             }
             frame_metric_dict = {x + "_frame": y for x, y in frame_metric_dict.items()}
             return {**metric_dict_filtered, **frame_metric_dict}

@@ -52,131 +52,6 @@ conllu_fields = [
 ]
 
 
-@DatasetReader.register("transformer_srl_dep")
-class SrlUdpDatasetReader(DatasetReader):
-    """
-    Reads a file in the conllu Universal Dependencies format.
-
-    # Parameters
-
-    token_indexers : `Dict[str, TokenIndexer]`, optional (default=`{"tokens": PretrainedTransformerIndexer()}`)
-        The token indexers to be applied to the words TextField.
-    use_language_specific_pos : `bool`, optional (default = `False`)
-        Whether to use UD POS tags, or to use the language specific POS tags
-        provided in the conllu format.
-    tokenizer : `Tokenizer`, optional (default = `None`)
-        A tokenizer to use to split the text. This is useful when the tokens that you pass
-        into the model need to have some particular attribute. Typically it is not necessary.
-    """
-
-    def __init__(
-        self, token_indexers: Dict[str, TokenIndexer] = None, model_name: str = None, **kwargs,
-    ) -> None:
-        super().__init__(**kwargs)
-        self.indexer = {"tokens": PretrainedTransformerMismatchedIndexer(model_name)}
-
-    @overrides
-    def _read(self, file_path: str):
-        # if `file_path` is a URL, redirect to the cache
-        file_path = cached_path(file_path)
-        with open(file_path, "r") as conllu_file:
-            logger.info("Reading UD instances from conllu dataset at: %s", file_path)
-
-            for annotation in parse_incr(
-                conllu_file, fields=conllu_fields, field_parsers={"roles": lambda line, i: line[i:]}
-            ):
-                # CoNLLU annotations sometimes add back in words that have been elided
-                # in the original sentence; we remove these, as we're just predicting
-                # dependencies for the original sentence.
-                # We filter by integers here as elided words have a non-integer word id,
-                # as parsed by the conllu python library.
-                annotation = [x for x in annotation if isinstance(x["id"], int)]
-
-                words = [x["form"] for x in annotation]
-                lemmas = [x["lemma"] for x in annotation]
-
-                # there is no frame/role in the sentence, skip
-                if "frame" not in annotation[0] or "roles" not in annotation[0]:
-                    continue
-                frames = [x["frame"] for x in annotation]
-                roles = [x["roles"] for x in annotation]
-                # transpose rolses, to have a list of roles per frame
-                roles = list(map(list, zip(*roles)))
-                for i, (frame, role) in enumerate(zip(frames, roles)):
-                    if frame != "_":
-                        verb_indicator = [0] * len(frames)
-                        verb_indicator[i] = 1
-                        frame_lables = ["O"] * len(frames)
-                        frame_lables[i] = frame
-                        # clean V tag from role
-                        role_labels = [r if r != "_" else "O" for r in role]
-                        lemma = lemmas[i]
-                        yield self.text_to_instance(
-                            words, verb_indicator, lemma, frame_lables, role_labels
-                        )
-
-    @overrides
-    def text_to_instance(
-        self,  # type: ignore
-        words: List[str],
-        verb_label: List[int],
-        lemmas: List[str] = None,
-        frames: List[str] = None,
-        tags: List[str] = None,
-    ) -> Instance:
-
-        """
-        # Parameters
-
-        words : `List[str]`, required.
-            The words in the sentence to be encoded.
-        upos_tags : `List[str]`, required.
-            The universal dependencies POS tags for each word.
-        dependencies : `List[Tuple[str, int]]`, optional (default = `None`)
-            A list of  (head tag, head index) tuples. Indices are 1 indexed,
-            meaning an index of 0 corresponds to that word being the root of
-            the dependency tree.
-
-        # Returns
-
-        An instance containing words, upos tags, dependency head tags and head
-        indices as fields.
-        """
-        fields: Dict[str, Field] = {}
-        tokens = [Token(t) for t in words]
-
-        text_field = TextField(tokens, token_indexers=self.indexer)
-        metadata_dict: Dict[str, Any] = {}
-
-        # adds cls and sep verb indicator
-        verb_indicator = SequenceLabelField(verb_label, text_field)
-
-        fields: Dict[str, Field] = {
-            "tokens": text_field,
-            "verb_indicator": verb_indicator,
-        }
-
-        verb_index = verb_label.index(1)
-        verb = tokens[verb_index].text
-
-        metadata_dict["words"] = [x.text for x in tokens]
-        metadata_dict["lemmas"] = lemmas
-        metadata_dict["verb"] = verb
-        metadata_dict["verb_index"] = verb_index
-
-        if tags:
-            # adds cls and sep verb indicator
-            fields["tags"] = SequenceLabelField(tags, text_field)
-            fields["frame_tags"] = SequenceLabelField(
-                frames, text_field, label_namespace="frames_labels"
-            )
-            metadata_dict["gold_tags"] = tags
-            metadata_dict["gold_frame_tags"] = frames
-
-        fields["metadata"] = MetadataField(metadata_dict)
-        return Instance(fields)
-
-
 def _convert_tags_to_wordpiece_tags(tags: List[str], offsets: List[int]) -> List[str]:
     """
     Converts a series of BIO tags to account for a wordpiece tokenizer,
@@ -222,7 +97,9 @@ def _convert_tags_to_wordpiece_tags(tags: List[str], offsets: List[int]) -> List
     return ["O"] + new_tags + ["O"]
 
 
-def _convert_verb_indices_to_wordpiece_indices(verb_indices: List[int], offsets: List[int]):
+def _convert_verb_indices_to_wordpiece_indices(
+    verb_indices: List[int], offsets: List[int]
+):
     """
     Converts binary verb indicators to account for a wordpiece tokenizer,
     extending/modifying BIO tags where appropriate to deal with words which
@@ -387,7 +264,9 @@ class SrlTransformersSpanReader(SrlReader):
             word_piece_tokens.extend(word_pieces)
 
         wordpieces = (
-            [self.bert_tokenizer.cls_token] + word_piece_tokens + [self.bert_tokenizer.sep_token]
+            [self.bert_tokenizer.cls_token]
+            + word_piece_tokens
+            + [self.bert_tokenizer.sep_token]
         )
         return wordpieces, end_offsets, start_offsets
 
@@ -415,10 +294,14 @@ class SrlTransformersSpanReader(SrlReader):
                         for f, v in zip(sentence.predicate_framenet_ids, verb_indicator)
                     ]
                     lemmas = [
-                        f for f, v in zip(sentence.predicate_lemmas, verb_indicator) if v == 1
+                        f
+                        for f, v in zip(sentence.predicate_lemmas, verb_indicator)
+                        if v == 1
                     ]
                     if not all(v == 0 for v in verb_indicator):
-                        yield self.text_to_instance(tokens, verb_indicator, frames, lemmas, tags)
+                        yield self.text_to_instance(
+                            tokens, verb_indicator, frames, lemmas, tags
+                        )
 
     def text_to_instance(  # type: ignore
         self,
@@ -439,7 +322,9 @@ class SrlTransformersSpanReader(SrlReader):
             [t.text for t in tokens]
         )
         new_verbs = _convert_verb_indices_to_wordpiece_indices(verb_label, offsets)
-        frame_indicator = _convert_frames_indices_to_wordpiece_indices(verb_label, offsets, True)
+        frame_indicator = _convert_frames_indices_to_wordpiece_indices(
+            verb_label, offsets, True
+        )
         metadata_dict["offsets"] = start_offsets
         # In order to override the indexing mechanism, we need to set the `text_id`
         # attribute directly. This causes the indexing to use this id.
@@ -469,7 +354,7 @@ class SrlTransformersSpanReader(SrlReader):
         metadata_dict["verb_index"] = verb_index
 
         if tags:
-            new_tags = _convert_tags_to_wordpiece_tags(tags, offsets)
+            new_tags = _convert_frames_indices_to_wordpiece_indices(tags, offsets)
             new_frames = _convert_frames_indices_to_wordpiece_indices(frames, offsets)
             fields["tags"] = SequenceLabelField(new_tags, text_field)
             fields["frame_tags"] = SequenceLabelField(
@@ -480,3 +365,74 @@ class SrlTransformersSpanReader(SrlReader):
 
         fields["metadata"] = MetadataField(metadata_dict)
         return Instance(fields)
+
+
+@DatasetReader.register("transformer_srl_dep")
+class SrlUdpDatasetReader(SrlTransformersSpanReader):
+    """
+    Reads a file in the conllu Universal Dependencies format.
+
+    # Parameters
+
+    token_indexers : `Dict[str, TokenIndexer]`, optional (default=`{"tokens": PretrainedTransformerIndexer()}`)
+        The token indexers to be applied to the words TextField.
+    use_language_specific_pos : `bool`, optional (default = `False`)
+        Whether to use UD POS tags, or to use the language specific POS tags
+        provided in the conllu format.
+    tokenizer : `Tokenizer`, optional (default = `None`)
+        A tokenizer to use to split the text. This is useful when the tokens that you pass
+        into the model need to have some particular attribute. Typically it is not necessary.
+    """
+
+    def __init__(
+        self,
+        token_indexers: Dict[str, TokenIndexer] = None,
+        model_name: str = None,
+        **kwargs,
+    ) -> None:
+        super().__init__(
+            token_indexers=token_indexers, bert_model_name=model_name, **kwargs
+        )
+
+    @overrides
+    def _read(self, file_path: str):
+        # if `file_path` is a URL, redirect to the cache
+        file_path = cached_path(file_path)
+        with open(file_path, "r") as conllu_file:
+            logger.info("Reading UD instances from conllu dataset at: %s", file_path)
+
+            for annotation in parse_incr(
+                conllu_file,
+                fields=conllu_fields,
+                field_parsers={"roles": lambda line, i: line[i:]},
+            ):
+                # CoNLLU annotations sometimes add back in words that have been elided
+                # in the original sentence; we remove these, as we're just predicting
+                # dependencies for the original sentence.
+                # We filter by integers here as elided words have a non-integer word id,
+                # as parsed by the conllu python library.
+                annotation = [x for x in annotation if isinstance(x["id"], int)]
+
+                words = [x["form"] for x in annotation]
+                words = [Token(w) for w in words]
+                lemmas = [x["lemma"] for x in annotation]
+                # there is no frame/role in the sentence, skip
+                if "frame" not in annotation[0] or "roles" not in annotation[0]:
+                    continue
+                frames = [x["frame"] for x in annotation]
+                roles = [x["roles"] for x in annotation]
+                # transpose rolses, to have a list of roles per frame
+                roles = list(map(list, zip(*roles)))
+                for i, (frame, role) in enumerate(zip(frames, roles)):
+                    if frame != "_":
+                        verb_indicator = [0] * len(frames)
+                        verb_indicator[i] = 1
+                        frame_lables = ["O"] * len(frames)
+                        frame_lables[i] = frame
+                        # clean V tag from role
+                        role_labels = [r if r != "_" else "O" for r in role]
+                        lemma = lemmas[i]
+                        yield self.text_to_instance(
+                            words, verb_indicator, frame_lables, lemma, role_labels
+                        )
+
