@@ -98,7 +98,7 @@ def _convert_tags_to_wordpiece_tags(tags: List[str], offsets: List[int]) -> List
 
 
 def _convert_verb_indices_to_wordpiece_indices(
-    verb_indices: List[int], offsets: List[int]
+    verb_indices: List[int], offsets: List[int], binary: bool = True
 ):
     """
     Converts binary verb indicators to account for a wordpiece tokenizer,
@@ -127,7 +127,10 @@ def _convert_verb_indices_to_wordpiece_indices(
             j += 1
 
     # Add 0 indicators for cls and sep tokens.
-    return [0] + new_verb_indices + [0]
+    if binary:
+        return [0] + new_verb_indices + [0]
+    else:
+        return ["O"] + new_verb_indices + ["O"]
 
 
 def _convert_frames_indices_to_wordpiece_indices(
@@ -354,7 +357,7 @@ class SrlTransformersSpanReader(SrlReader):
         metadata_dict["verb_index"] = verb_index
 
         if tags:
-            new_tags = _convert_frames_indices_to_wordpiece_indices(tags, offsets)
+            new_tags = _convert_verb_indices_to_wordpiece_indices(tags, offsets, False)
             new_frames = _convert_frames_indices_to_wordpiece_indices(frames, offsets)
             fields["tags"] = SequenceLabelField(new_tags, text_field)
             fields["frame_tags"] = SequenceLabelField(
