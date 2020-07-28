@@ -80,13 +80,15 @@ class TransformerSrlDep(Model):
         else:
             self.transformer = model_name
         # loss
-        self.role_criterion = torch.nn.CrossEntropyLoss()
+        self.role_criterion = torch.nn.CrossEntropyLoss(ignore_index=0)
         self.frame_criterion = torch.nn.CrossEntropyLoss()
         # number of classes
         self.num_classes = self.vocab.get_vocab_size("labels")
         self.frame_num_classes = self.vocab.get_vocab_size("frames_labels")
         # metrics
-        self.f1_role_metric = FBetaMeasure(average="micro")
+        role_set = self.vocab.get_token_to_index_vocabulary("labels")
+        role_set_filter = [v for k, v in role_set.items() if k != "O"]
+        self.f1_role_metric = FBetaMeasure(average="micro", labels=role_set_filter)
         self.f1_frame_metric = FBetaMeasure(average="micro")
         # output layer
         self.tag_projection_layer = Linear(
@@ -183,9 +185,10 @@ class TransformerSrlDep(Model):
 
         if tags is not None:
             # compute role loss
-            role_loss = sequence_cross_entropy_with_logits(
-                logits, tags, mask, label_smoothing=self._label_smoothing
-            )
+            # role_loss = sequence_cross_entropy_with_logits(
+            #     logits, tags, mask, label_smoothing=self._label_smoothing
+            # )
+            role_loss = self.role_criterion(logits.view(-1, self.num_classes), tags.view(-1))
             # compute frame loss
             frame_tags_filtered = frame_tags[frame_indicator == 1]
             frame_loss = self.frame_criterion(frame_logits, frame_tags_filtered)
@@ -243,9 +246,16 @@ class TransformerSrlDep(Model):
         self, output_dict: Dict[str, torch.Tensor], restrict: bool = True
     ) -> Dict[str, torch.Tensor]:
         output_dict = self.decode_frames(output_dict)
-        if self.restrict:
-            output_dict = self._mask_args(output_dict)
-        output_dict = super().make_output_human_readable(output_dict)
+        # if self.restrict:
+        #     output_dict = self._mask_args(output_dict)
+        # output_dict = super().make_output_human_readable(output_dict)
+        roles_probabilities = output_dict["role_probabilities"]
+        roles_predictions = roles_probabilities.argmax(dim=-1).cpu().data.numpy()
+
+        output_dict["tags"] = [
+            [self.vocab.get_token_from_index(r, namespace="labels") for r in roles]
+            for roles in roles_predictions
+        ]
         return output_dict
 
     def _mask_args(
@@ -292,7 +302,7 @@ class TransformerSrlDep(Model):
     def _get_label_ids(self, namespace: str = "labels"):
         return self.vocab.get_index_to_token_vocabulary(namespace).keys()
 
-    default_predictor = "transformer_srl_dep"
+    default_predictor = "transformer_srl"
 
 
 @Model.register("transformer_srl_span")
@@ -597,4 +607,4 @@ class TransformerSrlSpan(SrlBert):
     def _get_label_ids(self, namespace: str = "labels"):
         return self.vocab.get_index_to_token_vocabulary(namespace).keys()
 
-    default_predictor = "transformer_srl_span"
+    default_predictor = "transformer_srl"

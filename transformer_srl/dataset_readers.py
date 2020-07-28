@@ -357,7 +357,7 @@ class SrlTransformersSpanReader(SrlReader):
         metadata_dict["verb_index"] = verb_index
 
         if tags:
-            new_tags = _convert_verb_indices_to_wordpiece_indices(tags, offsets, False)
+            new_tags = _convert_tags_to_wordpiece_tags(tags, offsets)
             new_frames = _convert_frames_indices_to_wordpiece_indices(frames, offsets)
             fields["tags"] = SequenceLabelField(new_tags, text_field)
             fields["frame_tags"] = SequenceLabelField(
@@ -432,10 +432,9 @@ class SrlUdpDatasetReader(SrlTransformersSpanReader):
                         verb_indicator[i] = 1
                         frame_lables = ["O"] * len(frames)
                         frame_lables[i] = frame
-                        # clean V tag from role
-                        role_labels = [r if r != "_" else "O" for r in role]
+                        role_labels = ["B-" + r if r != "_" else "O" for r in role]
+                        role_labels [i] = "B-V"
                         lemma = lemmas[i]
                         yield self.text_to_instance(
                             words, verb_indicator, frame_lables, lemma, role_labels
                         )
-

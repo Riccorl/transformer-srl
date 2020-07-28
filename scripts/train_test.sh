@@ -10,4 +10,4 @@ export SRL_VALIDATION_DATA_PATH="$DATASET/en_ewt-up-dev.conllu"
 
 CONFIG="$PROJECT/training_config/bert_tiny_dep.jsonnet"
 
-allennlp train "$CONFIG" -s models/test_dep --include-package transformer_srl --recover
+allennlp train "$CONFIG" -s models/test_dep --include-package transformer_srl #--recover
