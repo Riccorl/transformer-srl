@@ -17,7 +17,7 @@
     "model": {
         "type": "transformer_srl_span",
         "embedding_dropout": 0.1,
-        "model_name": "bert-base-cased",
+        "bert_model": "bert-base-cased",
     },
 
     "trainer": {
