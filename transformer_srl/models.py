@@ -28,12 +28,8 @@ from transformers import AutoModel
 
 from transformer_srl.utils import load_lemma_frame, load_role_frame
 
-LEMMA_FRAME_PATH = (
-    pathlib.Path(__file__).resolve().parent / "resources" / "lemma2frame.csv"
-)
-FRAME_ROLE_PATH = (
-    pathlib.Path(__file__).resolve().parent / "resources" / "frame2role.csv"
-)
+LEMMA_FRAME_PATH = pathlib.Path(__file__).resolve().parent / "resources" / "lemma2frame.csv"
+FRAME_ROLE_PATH = pathlib.Path(__file__).resolve().parent / "resources" / "frame2role.csv"
 
 
 @Model.register("transformer_srl_dependency")
@@ -66,14 +62,16 @@ class TransformerSrlDependency(Model):
         label_smoothing: float = None,
         ignore_span_metric: bool = False,
         srl_eval_path: str = DEFAULT_SRL_EVAL_PATH,
-        restrict: bool = False,
+        restrict_frames: bool = False,
+        restrict_roles: bool = False,
         **kwargs,
     ) -> None:
         # bypass SrlBert constructor
         Model.__init__(self, vocab, **kwargs)
         self.lemma_frame_dict = load_lemma_frame(LEMMA_FRAME_PATH)
         self.frame_role_dict = load_role_frame(FRAME_ROLE_PATH)
-        self.restrict = restrict
+        self.restrict_frames = restrict_frames
+        self.restrict_roles = restrict_roles
 
         if isinstance(model_name, str):
             self.transformer = AutoModel.from_pretrained(model_name)
@@ -91,9 +89,7 @@ class TransformerSrlDependency(Model):
         self.f1_role_metric = FBetaMeasure(average="micro", labels=role_set_filter)
         self.f1_frame_metric = FBetaMeasure(average="micro")
         # output layer
-        self.tag_projection_layer = Linear(
-            self.transformer.config.hidden_size, self.num_classes
-        )
+        self.tag_projection_layer = Linear(self.transformer.config.hidden_size, self.num_classes)
         self.frame_projection_layer = Linear(
             self.transformer.config.hidden_size, self.frame_num_classes
         )
@@ -201,9 +197,7 @@ class TransformerSrlDependency(Model):
             output_dict["loss"] = (role_loss + frame_loss) / 2
         return output_dict
 
-    def decode_frames(
-        self, output_dict: Dict[str, torch.Tensor]
-    ) -> Dict[str, torch.Tensor]:
+    def decode_frames(self, output_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         # frame prediction
         frame_probabilities = output_dict["frame_probabilities"]
         if self.restrict:
@@ -233,8 +227,7 @@ class TransformerSrlDependency(Model):
             frame_predictions = frame_probabilities.argmax(dim=-1).cpu().data.numpy()
 
         output_dict["frame_tags"] = [
-            self.vocab.get_token_from_index(f, namespace="frames_labels")
-            for f in frame_predictions
+            self.vocab.get_token_from_index(f, namespace="frames_labels") for f in frame_predictions
         ]
         output_dict["frame_scores"] = [
             fp[f] for f, fp in zip(frame_predictions, frame_probabilities)
@@ -258,9 +251,7 @@ class TransformerSrlDependency(Model):
         ]
         return output_dict
 
-    def _mask_args(
-        self, output_dict: Dict[str, torch.Tensor]
-    ) -> Dict[str, torch.Tensor]:
+    def _mask_args(self, output_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         class_probs = output_dict["class_probabilities"]
         device = get_device_of(class_probs)
         lemmas = output_dict["lemma"]
@@ -270,8 +261,7 @@ class TransformerSrlDependency(Model):
             candidates = self.frame_role_dict.get((l, f), [])
             if candidates:
                 canidate_ids = [
-                    self.vocab.get_token_index(r, namespace="labels")
-                    for r in candidates
+                    self.vocab.get_token_index(r, namespace="labels") for r in candidates
                 ]
                 canidate_ids = torch.tensor(canidate_ids).to(device)
                 canidate_ids = canidate_ids.repeat(candidate_mask.shape[1], 1)
@@ -335,14 +325,16 @@ class TransformerSrlSpan(SrlBert):
         label_smoothing: float = None,
         ignore_span_metric: bool = False,
         srl_eval_path: str = DEFAULT_SRL_EVAL_PATH,
-        restrict: bool = False,
+        restrict_frames: bool = False,
+        restrict_roles: bool = False,
         **kwargs,
     ) -> None:
         # bypass SrlBert constructor
         Model.__init__(self, vocab, **kwargs)
         self.lemma_frame_dict = load_lemma_frame(LEMMA_FRAME_PATH)
         self.frame_role_dict = load_role_frame(FRAME_ROLE_PATH)
-        self.restrict = restrict
+        self.restrict_frames = restrict_frames
+        self.restrict_roles = restrict_roles
 
         if isinstance(bert_model, str):
             self.bert_model = AutoModel.from_pretrained(bert_model)
@@ -358,9 +350,7 @@ class TransformerSrlSpan(SrlBert):
         else:
             self.span_metric = None
         self.f1_frame_metric = FBetaMeasure(average="micro")
-        self.tag_projection_layer = Linear(
-            self.bert_model.config.hidden_size, self.num_classes
-        )
+        self.tag_projection_layer = Linear(self.bert_model.config.hidden_size, self.num_classes)
         self.frame_projection_layer = Linear(
             self.bert_model.config.hidden_size, self.frame_num_classes
         )
@@ -449,9 +439,7 @@ class TransformerSrlSpan(SrlBert):
             "mask": mask,
         }
         # We add in the offsets here so we can compute the un-wordpieced tags.
-        words, verbs, offsets = zip(
-            *[(x["words"], x["verb"], x["offsets"]) for x in metadata]
-        )
+        words, verbs, offsets = zip(*[(x["words"], x["verb"], x["offsets"]) for x in metadata])
         lemmas = [l for x in metadata for l in x["lemmas"]]
         output_dict["words"] = list(words)
         output_dict["lemma"] = list(lemmas)
@@ -466,35 +454,27 @@ class TransformerSrlSpan(SrlBert):
             # compute frame loss
             frame_tags_filtered = frame_tags[frame_indicator == 1]
             frame_loss = self.frame_criterion(frame_logits, frame_tags_filtered)
-            if (
-                not self.ignore_span_metric
-                and self.span_metric is not None
-                and not self.training
-            ):
+            if not self.ignore_span_metric and self.span_metric is not None and not self.training:
                 batch_verb_indices = [
                     example_metadata["verb_index"] for example_metadata in metadata
                 ]
-                batch_sentences = [
-                    example_metadata["words"] for example_metadata in metadata
-                ]
+                batch_sentences = [example_metadata["words"] for example_metadata in metadata]
                 # Get the BIO tags from make_output_human_readable()
-                batch_bio_predicted_tags = self.make_output_human_readable(
-                    output_dict, False
-                ).pop("tags")
+                batch_bio_predicted_tags = self.make_output_human_readable(output_dict, False).pop(
+                    "tags"
+                )
                 from allennlp_models.structured_prediction.models.srl import (
                     convert_bio_tags_to_conll_format,
                 )
 
                 batch_conll_predicted_tags = [
-                    convert_bio_tags_to_conll_format(tags)
-                    for tags in batch_bio_predicted_tags
+                    convert_bio_tags_to_conll_format(tags) for tags in batch_bio_predicted_tags
                 ]
                 batch_bio_gold_tags = [
                     example_metadata["gold_tags"] for example_metadata in metadata
                 ]
                 batch_conll_gold_tags = [
-                    convert_bio_tags_to_conll_format(tags)
-                    for tags in batch_bio_gold_tags
+                    convert_bio_tags_to_conll_format(tags) for tags in batch_bio_gold_tags
                 ]
                 self.span_metric(
                     batch_verb_indices,
@@ -508,9 +488,7 @@ class TransformerSrlSpan(SrlBert):
             output_dict["loss"] = (role_loss + frame_loss) / 2
         return output_dict
 
-    def decode_frames(
-        self, output_dict: Dict[str, torch.Tensor]
-    ) -> Dict[str, torch.Tensor]:
+    def decode_frames(self, output_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         # frame prediction
         frame_probabilities = output_dict["frame_probabilities"]
         if self.restrict:
@@ -540,8 +518,7 @@ class TransformerSrlSpan(SrlBert):
             frame_predictions = frame_probabilities.argmax(dim=-1).cpu().data.numpy()
 
         output_dict["frame_tags"] = [
-            self.vocab.get_token_from_index(f, namespace="frames_labels")
-            for f in frame_predictions
+            self.vocab.get_token_from_index(f, namespace="frames_labels") for f in frame_predictions
         ]
         output_dict["frame_scores"] = [
             fp[f] for f, fp in zip(frame_predictions, frame_probabilities)
@@ -550,17 +527,15 @@ class TransformerSrlSpan(SrlBert):
 
     @overrides
     def make_output_human_readable(
-        self, output_dict: Dict[str, torch.Tensor], restrict: bool = True
+        self, output_dict: Dict[str, torch.Tensor]
     ) -> Dict[str, torch.Tensor]:
         output_dict = self.decode_frames(output_dict)
-        if self.restrict:
+        if self.restrict_roles:
             output_dict = self._mask_args(output_dict)
         output_dict = super().make_output_human_readable(output_dict)
         return output_dict
 
-    def _mask_args(
-        self, output_dict: Dict[str, torch.Tensor]
-    ) -> Dict[str, torch.Tensor]:
+    def _mask_args(self, output_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         class_probs = output_dict["class_probabilities"]
         device = get_device_of(class_probs)
         lemmas = output_dict["lemma"]
@@ -570,8 +545,7 @@ class TransformerSrlSpan(SrlBert):
             candidates = self.frame_role_dict.get((l, f), [])
             if candidates:
                 canidate_ids = [
-                    self.vocab.get_token_index(r, namespace="labels")
-                    for r in candidates
+                    self.vocab.get_token_index(r, namespace="labels") for r in candidates
                 ]
                 canidate_ids = torch.tensor(canidate_ids).to(device)
                 canidate_ids = canidate_ids.repeat(candidate_mask.shape[1], 1)
@@ -594,9 +568,7 @@ class TransformerSrlSpan(SrlBert):
             # This can be a lot of metrics, as there are 3 per class.
             # we only really care about the overall metrics, so we filter for them here.
             metric_dict_filtered = {
-                x.split("-")[0] + "_role": y
-                for x, y in metric_dict.items()
-                if "overall" in x
+                x.split("-")[0] + "_role": y for x, y in metric_dict.items() if "overall" in x
             }
             frame_metric_dict = {x + "_frame": y for x, y in frame_metric_dict.items()}
             return {**metric_dict_filtered, **frame_metric_dict}

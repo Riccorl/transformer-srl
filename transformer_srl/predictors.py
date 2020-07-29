@@ -156,7 +156,8 @@ class SrlTransformersPredictor(SemanticRoleLabelerPredictor):
         dataset_reader_to_load: str = "validation",
         frozen: bool = True,
         language: str = "en_core_web_sm",
-        restrict: bool = False,
+        restrict_frames: bool = False,
+        restrict_roles: bool = False,
     ) -> "Predictor":
         # Duplicate the config so that the config inside the archive doesn't get consumed
         config = archive.config.duplicate()
@@ -177,7 +178,8 @@ class SrlTransformersPredictor(SemanticRoleLabelerPredictor):
 
         model = archive.model
         if frozen:
-            model.restrict = restrict
+            model.restrict_frames = restrict_frames
+            model.restrict_roles = restrict_roles
             model.eval()
 
         return predictor_class(model, dataset_reader, language)
