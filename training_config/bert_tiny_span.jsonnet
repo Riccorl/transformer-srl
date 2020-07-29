@@ -1,6 +1,6 @@
 {
     "dataset_reader": {
-      "type": "transformer_srl",
+      "type": "transformer_srl_span",
       "bert_model_name": "mrm8488/bert-tiny-finetuned-squadv2",
 
     },
@@ -16,7 +16,7 @@
     "validation_data_path": std.extVar("SRL_VALIDATION_DATA_PATH"),
 
     "model": {
-        "type": "transformer_srl",
+        "type": "transformer_srl_span",
         "embedding_dropout": 0.1,
         "bert_model": "mrm8488/bert-tiny-finetuned-squadv2",
     },

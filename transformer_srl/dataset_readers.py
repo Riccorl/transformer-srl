@@ -267,9 +267,7 @@ class SrlTransformersSpanReader(SrlReader):
             word_piece_tokens.extend(word_pieces)
 
         wordpieces = (
-            [self.bert_tokenizer.cls_token]
-            + word_piece_tokens
-            + [self.bert_tokenizer.sep_token]
+            [self.bert_tokenizer.cls_token] + word_piece_tokens + [self.bert_tokenizer.sep_token]
         )
         return wordpieces, end_offsets, start_offsets
 
@@ -297,14 +295,10 @@ class SrlTransformersSpanReader(SrlReader):
                         for f, v in zip(sentence.predicate_framenet_ids, verb_indicator)
                     ]
                     lemmas = [
-                        f
-                        for f, v in zip(sentence.predicate_lemmas, verb_indicator)
-                        if v == 1
+                        f for f, v in zip(sentence.predicate_lemmas, verb_indicator) if v == 1
                     ]
                     if not all(v == 0 for v in verb_indicator):
-                        yield self.text_to_instance(
-                            tokens, verb_indicator, frames, lemmas, tags
-                        )
+                        yield self.text_to_instance(tokens, verb_indicator, frames, lemmas, tags)
 
     def text_to_instance(  # type: ignore
         self,
@@ -325,9 +319,7 @@ class SrlTransformersSpanReader(SrlReader):
             [t.text for t in tokens]
         )
         new_verbs = _convert_verb_indices_to_wordpiece_indices(verb_label, offsets)
-        frame_indicator = _convert_frames_indices_to_wordpiece_indices(
-            verb_label, offsets, True
-        )
+        frame_indicator = _convert_frames_indices_to_wordpiece_indices(verb_label, offsets, True)
         metadata_dict["offsets"] = start_offsets
         # In order to override the indexing mechanism, we need to set the `text_id`
         # attribute directly. This causes the indexing to use this id.
@@ -388,14 +380,9 @@ class SrlUdpDatasetReader(SrlTransformersSpanReader):
     """
 
     def __init__(
-        self,
-        token_indexers: Dict[str, TokenIndexer] = None,
-        model_name: str = None,
-        **kwargs,
+        self, token_indexers: Dict[str, TokenIndexer] = None, model_name: str = None, **kwargs,
     ) -> None:
-        super().__init__(
-            token_indexers=token_indexers, bert_model_name=model_name, **kwargs
-        )
+        super().__init__(token_indexers=token_indexers, bert_model_name=model_name, **kwargs)
 
     @overrides
     def _read(self, file_path: str):
@@ -434,8 +421,10 @@ class SrlUdpDatasetReader(SrlTransformersSpanReader):
                             verb_indicator[i] = 1
                             frame_lables = ["O"] * len(frames)
                             frame_lables[i] = frame
-                            role_labels = ["B-" + r if r != "_" else "O" for r in roles[current_frame]]
-                            role_labels [i] = "B-V"
+                            role_labels = [
+                                "B-" + r if r != "_" else "O" for r in roles[current_frame]
+                            ]
+                            role_labels[i] = "B-V"
                             lemma = lemmas[i]
                             current_frame += 1
                             yield self.text_to_instance(
@@ -451,8 +440,10 @@ class SrlUdpDatasetReader(SrlTransformersSpanReader):
                             verb_indicator[i] = 1
                             frame_lables = ["O"] * len(frames)
                             frame_lables[i] = frame
-                            role_labels = ["B-" + r if r != "_" else "O" for r in roles[current_frame]]
-                            role_labels [i] = "B-V"
+                            role_labels = [
+                                "B-" + r if r != "_" else "O" for r in roles[current_frame]
+                            ]
+                            role_labels[i] = "B-V"
                             lemma = lemmas[i]
                             current_frame += 1
                             yield self.text_to_instance(

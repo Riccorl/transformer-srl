@@ -15,7 +15,7 @@
     "validation_data_path": std.extVar("SRL_VALIDATION_DATA_PATH"),
 
     "model": {
-        "type": "transformer_srl",
+        "type": "transformer_srl_span",
         "embedding_dropout": 0.1,
         "bert_model": "bert-base-cased",
     },
