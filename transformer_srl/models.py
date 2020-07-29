@@ -491,7 +491,7 @@ class TransformerSrlSpan(SrlBert):
     def decode_frames(self, output_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         # frame prediction
         frame_probabilities = output_dict["frame_probabilities"]
-        if self.restrict:
+        if self.restrict_frames:
             frame_probabilities = frame_probabilities.cpu().data.numpy()
             lemmas = output_dict["lemma"]
             candidate_labels = [self.lemma_frame_dict.get(l, []) for l in lemmas]
