@@ -36,8 +36,8 @@ FRAME_ROLE_PATH = (
 )
 
 
-@Model.register("transformer_srl_dep")
-class TransformerSrlDep(Model):
+@Model.register("transformer_srl_dependency")
+class TransformerSrlDependency(Model):
     """
 
     # Parameters

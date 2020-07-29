@@ -1,6 +1,6 @@
 {
     "dataset_reader": {
-      "type": "transformer_srl_dep",
+      "type": "transformer_srl_dependency",
       "model_name": "bert-base-cased",
     },
 
