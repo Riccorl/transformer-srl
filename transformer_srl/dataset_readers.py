@@ -5,14 +5,51 @@ from allennlp.common.file_utils import cached_path
 from allennlp.data.dataset_readers.dataset_reader import DatasetReader
 from allennlp.data.fields import Field, TextField, SequenceLabelField, MetadataField
 from allennlp.data.instance import Instance
-from allennlp.data.token_indexers import TokenIndexer, PretrainedTransformerIndexer
+from allennlp.data.token_indexers import (
+    TokenIndexer,
+    PretrainedTransformerIndexer,
+    PretrainedTransformerMismatchedIndexer,
+)
 from allennlp.data.tokenizers import Token
 from allennlp_models.common.ontonotes import Ontonotes, OntonotesSentence
 from allennlp_models.structured_prediction import SrlReader
 from overrides import overrides
 from transformers import AutoTokenizer
 
+from typing import Dict, Tuple, List
+import logging
+
+from conllu import parse_incr
+
+
 logger = logging.getLogger(__name__)
+
+"""
+ID: Word index, integer starting at 1 for each new sentence; may be a range for tokens with multiple words.
+FORM: Word form or punctuation symbol.
+LEMMA: Lemma or stem of word form.
+UPOSTAG: Universal part-of-speech tag drawn from our revised version of the Google universal POS tags.
+XPOSTAG: Language-specific part-of-speech tag; underscore if not available.
+FEATS: List of morphological features from the universal feature inventory or from a defined language-specific extension; underscore if not available.
+HEAD: Head of the current token, which is either a value of ID or zero (0).
+DEPREL: Universal Stanford dependency relation to the HEAD (root iff HEAD = 0) or a defined language-specific subtype of one.
+DEPS: List of secondary dependencies (head-deprel pairs).
+MISC: Any other annotation.
+"""
+
+conllu_fields = [
+    "id",
+    "form",
+    "lemma",
+    "upostag",
+    "xpostag",
+    "feats",
+    "head",
+    "deprel",
+    "is_frame",
+    "frame",
+    "roles",
+]
 
 
 def _convert_tags_to_wordpiece_tags(tags: List[str], offsets: List[int]) -> List[str]:
@@ -60,7 +97,9 @@ def _convert_tags_to_wordpiece_tags(tags: List[str], offsets: List[int]) -> List
     return ["O"] + new_tags + ["O"]
 
 
-def _convert_verb_indices_to_wordpiece_indices(verb_indices: List[int], offsets: List[int]):
+def _convert_verb_indices_to_wordpiece_indices(
+    verb_indices: List[int], offsets: List[int], binary: bool = True
+):
     """
     Converts binary verb indicators to account for a wordpiece tokenizer,
     extending/modifying BIO tags where appropriate to deal with words which
@@ -88,7 +127,10 @@ def _convert_verb_indices_to_wordpiece_indices(verb_indices: List[int], offsets:
             j += 1
 
     # Add 0 indicators for cls and sep tokens.
-    return [0] + new_verb_indices + [0]
+    if binary:
+        return [0] + new_verb_indices + [0]
+    else:
+        return ["O"] + new_verb_indices + ["O"]
 
 
 def _convert_frames_indices_to_wordpiece_indices(
@@ -126,8 +168,8 @@ def _convert_frames_indices_to_wordpiece_indices(
         return ["O"] + new_frame_labels + ["O"]
 
 
-@DatasetReader.register("transformer_srl")
-class SrlTransformersReader(SrlReader):
+@DatasetReader.register("transformer_srl_span")
+class SrlTransformersSpanReader(SrlReader):
     """
     This DatasetReader is designed to read in the English OntoNotes v5.0 data
     for semantic role labelling. It returns a dataset of instances with the
@@ -167,7 +209,9 @@ class SrlTransformersReader(SrlReader):
         **kwargs,
     ) -> None:
         DatasetReader.__init__(self, **kwargs)
-        self._token_indexers = token_indexers or {"tokens": PretrainedTransformerIndexer(bert_model_name)}
+        self._token_indexers = token_indexers or {
+            "tokens": PretrainedTransformerIndexer(bert_model_name)
+        }
         self._domain_identifier = domain_identifier
 
         self.bert_tokenizer = AutoTokenizer.from_pretrained(bert_model_name)
@@ -223,7 +267,9 @@ class SrlTransformersReader(SrlReader):
             word_piece_tokens.extend(word_pieces)
 
         wordpieces = (
-            [self.bert_tokenizer.cls_token] + word_piece_tokens + [self.bert_tokenizer.sep_token]
+            [self.bert_tokenizer.cls_token]
+            + word_piece_tokens
+            + [self.bert_tokenizer.sep_token]
         )
         return wordpieces, end_offsets, start_offsets
 
@@ -251,10 +297,14 @@ class SrlTransformersReader(SrlReader):
                         for f, v in zip(sentence.predicate_framenet_ids, verb_indicator)
                     ]
                     lemmas = [
-                        f for f, v in zip(sentence.predicate_lemmas, verb_indicator) if v == 1
+                        f
+                        for f, v in zip(sentence.predicate_lemmas, verb_indicator)
+                        if v == 1
                     ]
                     if not all(v == 0 for v in verb_indicator):
-                        yield self.text_to_instance(tokens, verb_indicator, frames, lemmas, tags)
+                        yield self.text_to_instance(
+                            tokens, verb_indicator, frames, lemmas, tags
+                        )
 
     def text_to_instance(  # type: ignore
         self,
@@ -275,7 +325,9 @@ class SrlTransformersReader(SrlReader):
             [t.text for t in tokens]
         )
         new_verbs = _convert_verb_indices_to_wordpiece_indices(verb_label, offsets)
-        frame_indicator = _convert_frames_indices_to_wordpiece_indices(verb_label, offsets, True)
+        frame_indicator = _convert_frames_indices_to_wordpiece_indices(
+            verb_label, offsets, True
+        )
         metadata_dict["offsets"] = start_offsets
         # In order to override the indexing mechanism, we need to set the `text_id`
         # attribute directly. This causes the indexing to use this id.
@@ -316,3 +368,93 @@ class SrlTransformersReader(SrlReader):
 
         fields["metadata"] = MetadataField(metadata_dict)
         return Instance(fields)
+
+
+@DatasetReader.register("transformer_srl_dep")
+class SrlUdpDatasetReader(SrlTransformersSpanReader):
+    """
+    Reads a file in the conllu Universal Dependencies format.
+
+    # Parameters
+
+    token_indexers : `Dict[str, TokenIndexer]`, optional (default=`{"tokens": PretrainedTransformerIndexer()}`)
+        The token indexers to be applied to the words TextField.
+    use_language_specific_pos : `bool`, optional (default = `False`)
+        Whether to use UD POS tags, or to use the language specific POS tags
+        provided in the conllu format.
+    tokenizer : `Tokenizer`, optional (default = `None`)
+        A tokenizer to use to split the text. This is useful when the tokens that you pass
+        into the model need to have some particular attribute. Typically it is not necessary.
+    """
+
+    def __init__(
+        self,
+        token_indexers: Dict[str, TokenIndexer] = None,
+        model_name: str = None,
+        **kwargs,
+    ) -> None:
+        super().__init__(
+            token_indexers=token_indexers, bert_model_name=model_name, **kwargs
+        )
+
+    @overrides
+    def _read(self, file_path: str):
+        # if `file_path` is a URL, redirect to the cache
+        file_path = cached_path(file_path)
+        with open(file_path, "r") as conllu_file:
+            logger.info("Reading UD instances from conllu dataset at: %s", file_path)
+
+            for annotation in parse_incr(
+                conllu_file,
+                fields=conllu_fields,
+                field_parsers={"roles": lambda line, i: line[i:]},
+            ):
+                # CoNLLU annotations sometimes add back in words that have been elided
+                # in the original sentence; we remove these, as we're just predicting
+                # dependencies for the original sentence.
+                # We filter by integers here as elided words have a non-integer word id,
+                # as parsed by the conllu python library.
+                annotation = [x for x in annotation if isinstance(x["id"], int)]
+
+                words = [x["form"] for x in annotation]
+                words = [Token(w) for w in words]
+                lemmas = [x["lemma"] for x in annotation]
+                # there is no frame/role in the sentence, skip
+                if "frame" not in annotation[0] or "roles" not in annotation[0]:
+                    continue
+                frames = [x["frame"] for x in annotation]
+                roles = [x["roles"] for x in annotation]
+                # transpose rolses, to have a list of roles per frame
+                roles = list(map(list, zip(*roles)))
+                current_frame = 0
+                for i, frame, in enumerate(frames):
+                    try:
+                        if frame != "_":
+                            verb_indicator = [0] * len(frames)
+                            verb_indicator[i] = 1
+                            frame_lables = ["O"] * len(frames)
+                            frame_lables[i] = frame
+                            role_labels = ["B-" + r if r != "_" else "O" for r in roles[current_frame]]
+                            role_labels [i] = "B-V"
+                            lemma = lemmas[i]
+                            current_frame += 1
+                            yield self.text_to_instance(
+                                words, verb_indicator, frame_lables, lemma, role_labels
+                            )
+                    except:
+                        if frame != "_":
+                            print(words)
+                            print(frames)
+                            print(current_frame)
+                            print(len(roles))
+                            verb_indicator = [0] * len(frames)
+                            verb_indicator[i] = 1
+                            frame_lables = ["O"] * len(frames)
+                            frame_lables[i] = frame
+                            role_labels = ["B-" + r if r != "_" else "O" for r in roles[current_frame]]
+                            role_labels [i] = "B-V"
+                            lemma = lemmas[i]
+                            current_frame += 1
+                            yield self.text_to_instance(
+                                words, verb_indicator, frame_lables, lemma, role_labels
+                            )
