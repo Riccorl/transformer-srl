@@ -135,7 +135,8 @@ class SrlTransformersPredictor(SemanticRoleLabelerPredictor):
         frozen: bool = True,
         import_plugins: bool = True,
         language: str = "en_core_web_sm",
-        restrict: bool = False,
+        restrict_frames: bool = False,
+        restrict_roles: bool = False,
     ) -> "Predictor":
         if import_plugins:
             plugins.import_plugins()
@@ -145,7 +146,8 @@ class SrlTransformersPredictor(SemanticRoleLabelerPredictor):
             dataset_reader_to_load=dataset_reader_to_load,
             frozen=frozen,
             language=language,
-            restrict=restrict,
+            restrict_frames=restrestrict_framesrict,
+            restrict_roles=restrict_roles,
         )
 
     @classmethod
