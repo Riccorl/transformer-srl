@@ -146,7 +146,7 @@ class SrlTransformersPredictor(SemanticRoleLabelerPredictor):
             dataset_reader_to_load=dataset_reader_to_load,
             frozen=frozen,
             language=language,
-            restrict_frames=restrestrict_framesrict,
+            restrict_frames=restrict_frames,
             restrict_roles=restrict_roles,
         )
 
