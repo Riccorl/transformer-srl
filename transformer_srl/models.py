@@ -460,9 +460,7 @@ class TransformerSrlSpan(SrlBert):
                 ]
                 batch_sentences = [example_metadata["words"] for example_metadata in metadata]
                 # Get the BIO tags from make_output_human_readable()
-                batch_bio_predicted_tags = self.make_output_human_readable(output_dict, False).pop(
-                    "tags"
-                )
+                batch_bio_predicted_tags = self.make_output_human_readable(output_dict).pop("tags")
                 from allennlp_models.structured_prediction.models.srl import (
                     convert_bio_tags_to_conll_format,
                 )

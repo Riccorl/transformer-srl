@@ -415,37 +415,17 @@ class SrlUdpDatasetReader(SrlTransformersSpanReader):
                 roles = list(map(list, zip(*roles)))
                 current_frame = 0
                 for i, frame, in enumerate(frames):
-                    try:
-                        if frame != "_":
-                            verb_indicator = [0] * len(frames)
-                            verb_indicator[i] = 1
-                            frame_lables = ["O"] * len(frames)
-                            frame_lables[i] = frame
-                            role_labels = [
-                                "B-" + r if r != "_" else "O" for r in roles[current_frame]
-                            ]
-                            role_labels[i] = "B-V"
-                            lemma = lemmas[i]
-                            current_frame += 1
-                            yield self.text_to_instance(
-                                words, verb_indicator, frame_lables, lemma, role_labels
-                            )
-                    except:
-                        if frame != "_":
-                            print(words)
-                            print(frames)
-                            print(current_frame)
-                            print(len(roles))
-                            verb_indicator = [0] * len(frames)
-                            verb_indicator[i] = 1
-                            frame_lables = ["O"] * len(frames)
-                            frame_lables[i] = frame
-                            role_labels = [
-                                "B-" + r if r != "_" else "O" for r in roles[current_frame]
-                            ]
-                            role_labels[i] = "B-V"
-                            lemma = lemmas[i]
-                            current_frame += 1
-                            yield self.text_to_instance(
-                                words, verb_indicator, frame_lables, lemma, role_labels
-                            )
+                    if frame != "_":
+                        verb_indicator = [0] * len(frames)
+                        verb_indicator[i] = 1
+                        frame_lables = ["O"] * len(frames)
+                        frame_lables[i] = frame
+                        role_labels = [
+                            "B-" + r if r != "_" else "O" for r in roles[current_frame]
+                        ]
+                        role_labels[i] = "B-V"
+                        lemma = lemmas[i]
+                        current_frame += 1
+                        yield self.text_to_instance(
+                            words, verb_indicator, frame_lables, lemma, role_labels
+                        )
