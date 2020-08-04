@@ -324,7 +324,7 @@ class SrlTransformersSpanReader(SrlReader):
         # In order to override the indexing mechanism, we need to set the `text_id`
         # attribute directly. This causes the indexing to use this id.
         text_field = TextField(
-            [Token(t, text_id=self.convert_tokens_to_ids(t)) for t in wordpieces],
+            [Token(t, text_id=self.bert_tokenizer.convert_tokens_to_ids(t)) for t in wordpieces],
             token_indexers=self._token_indexers,
         )
         verb_indicator = SequenceLabelField(new_verbs, text_field)
