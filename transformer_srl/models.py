@@ -408,10 +408,9 @@ class TransformerSrlSpan(SrlBert):
             A scalar loss to be optimised.
         """
         mask = get_text_field_mask(tokens)
-        input_ids = util.get_token_ids_from_text_field_tensors(tokens)
-        bert_embeddings, _ = self.bert_model(
-            input_ids=input_ids,
-            token_type_ids=torch.zeros_like(input_ids),
+        bert_embeddings, _ = self.transformer(
+            input_ids=util.get_token_ids_from_text_field_tensors(tokens),
+            token_type_ids=verb_indicator,
             attention_mask=mask,
         )
 
