@@ -11,7 +11,7 @@ setuptools.setup(
     description="SRL Transformer model",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/Riccorl/transformer_srl",
+    url="https://github.com/Riccorl/transformer-srl",
     packages=setuptools.find_packages(),
     include_package_data=True,
     classifiers=[
@@ -20,6 +20,7 @@ setuptools.setup(
         "Operating System :: OS Independent",
     ],
     install_requires=[
+        "torch>=1.6.0,<1.7.0",
         "allennlp>=1.1.0rc2",
         "allennlp_models>=1.1.0rc2",
         "spacy==2.1.9"
