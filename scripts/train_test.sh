@@ -2,7 +2,7 @@
 source /Users/ric/miniconda3/bin/activate srl-mt
 
 # local
-DATASET="data/un/"
+DATASET="data/semeval/"
 PROJECT="/Users/ric/Documents/ComputerScience/Projects/transformer-srl"
 
 export SRL_TRAIN_DATA_PATH="$DATASET"

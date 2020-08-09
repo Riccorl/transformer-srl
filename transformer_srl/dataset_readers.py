@@ -58,7 +58,7 @@ def _convert_tags_to_wordpiece_tags(tags: List[str], offsets: List[int]) -> List
     extending/modifying BIO tags where appropriate to deal with words which
     are split into multiple wordpieces by the tokenizer.
 
-    This is only used if you pass a `bert_model_name` to the dataset reader below.
+    This is only used if you pass a `model_name` to the dataset reader below.
 
     # Parameters
 
@@ -105,7 +105,7 @@ def _convert_verb_indices_to_wordpiece_indices(
     extending/modifying BIO tags where appropriate to deal with words which
     are split into multiple wordpieces by the tokenizer.
 
-    This is only used if you pass a `bert_model_name` to the dataset reader below.
+    This is only used if you pass a `model_name` to the dataset reader below.
 
     # Parameters
 
@@ -140,7 +140,7 @@ def _convert_frames_indices_to_wordpiece_indices(
     Converts frame labels to account for a wordpiece tokenizer,
     extending/modifying BIO tags where appropriate to deal with words which
     are split into multiple wordpieces by the tokenizer.
-    This is only used if you pass a `bert_model_name` to the dataset reader below.
+    This is only used if you pass a `model_name` to the dataset reader below.
     # Parameters
     frame_labels : `List[int]`
         Frame labels.
@@ -190,7 +190,7 @@ class SrlTransformersSpanReader(SrlReader):
     domain_identifier : `str`, (default = `None`)
         A string denoting a sub-domain of the Ontonotes 5.0 dataset to use. If present, only
         conll files under paths containing this domain identifier will be processed.
-    bert_model_name : `Optional[str]`, (default = `None`)
+    model_name : `Optional[str]`, (default = `None`)
         The BERT model to be wrapped. If you specify a bert_model here, then we will
         assume you want to use BERT throughout; we will use the bert tokenizer,
         and will expand your tags and verb indicators accordingly. If not,
@@ -205,17 +205,17 @@ class SrlTransformersSpanReader(SrlReader):
         self,
         token_indexers: Dict[str, TokenIndexer] = None,
         domain_identifier: str = None,
-        bert_model_name: str = None,
+        model_name: str = None,
         **kwargs,
     ) -> None:
         DatasetReader.__init__(self, **kwargs)
         self._token_indexers = token_indexers or {
-            "tokens": PretrainedTransformerIndexer(bert_model_name)
+            "tokens": PretrainedTransformerIndexer(model_name)
         }
         self._domain_identifier = domain_identifier
 
-        self.bert_tokenizer = AutoTokenizer.from_pretrained(bert_model_name)
-        self.lowercase_input = "uncased" in bert_model_name
+        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+        self.lowercase_input = "uncased" in model_name
 
     def _wordpiece_tokenize_input(
         self, tokens: List[str]
@@ -260,14 +260,14 @@ class SrlTransformersSpanReader(SrlReader):
         for token in tokens:
             if self.lowercase_input:
                 token = token.lower()
-            word_pieces = self.bert_tokenizer.tokenize(token)
+            word_pieces = self.tokenizer.tokenize(token)
             start_offsets.append(cumulative + 1)
             cumulative += len(word_pieces)
             end_offsets.append(cumulative)
             word_piece_tokens.extend(word_pieces)
 
         wordpieces = (
-            [self.bert_tokenizer.cls_token] + word_piece_tokens + [self.bert_tokenizer.sep_token]
+            [self.tokenizer.cls_token] + word_piece_tokens + [self.tokenizer.sep_token]
         )
         return wordpieces, end_offsets, start_offsets
 
@@ -299,7 +299,7 @@ class SrlTransformersSpanReader(SrlReader):
                     ]
                     if not all(v == 0 for v in verb_indicator):
                         yield self.text_to_instance(tokens, verb_indicator, frames, lemmas, tags)
-
+                
     def text_to_instance(  # type: ignore
         self,
         tokens: List[Token],
@@ -324,7 +324,7 @@ class SrlTransformersSpanReader(SrlReader):
         # In order to override the indexing mechanism, we need to set the `text_id`
         # attribute directly. This causes the indexing to use this id.
         text_field = TextField(
-            [Token(t, text_id=self.bert_tokenizer.convert_tokens_to_ids(t)) for t in wordpieces],
+            [Token(t, text_id=self.tokenizer.convert_tokens_to_ids(t)) for t in wordpieces],
             token_indexers=self._token_indexers,
         )
         verb_indicator = SequenceLabelField(new_verbs, text_field)
@@ -382,7 +382,7 @@ class SrlUdpDatasetReader(SrlTransformersSpanReader):
     def __init__(
         self, token_indexers: Dict[str, TokenIndexer] = None, model_name: str = None, **kwargs,
     ) -> None:
-        super().__init__(token_indexers=token_indexers, bert_model_name=model_name, **kwargs)
+        super().__init__(token_indexers=token_indexers, model_name=model_name, **kwargs)
 
     @overrides
     def _read(self, file_path: str):

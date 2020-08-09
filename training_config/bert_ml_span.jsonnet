@@ -1,7 +1,7 @@
 {
     "dataset_reader": {
       "type": "transformer_srl_span",
-      "bert_model_name": "bert-base-multilingual-cased",
+      "model_name": "bert-base-multilingual-cased",
     },
 
     "data_loader": {

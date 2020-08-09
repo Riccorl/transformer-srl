@@ -1,7 +1,7 @@
 {
     "dataset_reader": {
       "type": "transformer_srl_span",
-      "bert_model_name": "mrm8488/bert-tiny-finetuned-squadv2",
+      "model_name": "mrm8488/bert-tiny-finetuned-squadv2",
 
     },
 
@@ -41,6 +41,6 @@
         "grad_norm": 1.0,
         "num_epochs": 15,
         "validation_metric": "+f1_role",
-        "cuda_device": 0,
+        "cuda_device": -1,
     },
 }
