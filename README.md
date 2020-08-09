@@ -5,11 +5,19 @@
 
 Semantic Role Labeling based on [AllenNLP implementation](https://demo.allennlp.org/semantic-role-labeling) of [Shi et al, 2019](https://arxiv.org/abs/1904.05255). It uses [VerbAatlas](http://verbatlas.org/) inventory and it's trained also on predicate disambiguation, in addition to arguments identification and disambiguation.
 
+### To-Dos
+
+- [x] Works with both PropBank and VerbAtlas (infer inventory from dataset reader)
+- [ ] Compatibility with all models from Huggingface's Transformers.
+        - Now works only with models that accept 1 as token type id 
+
+### Infos
+
 - Language Model: BERT
 - Dataset: CoNLL 2012
 
 
-### Results
+### Results with VerbAtlas
 
 With `bert-base-cased`:
 ```

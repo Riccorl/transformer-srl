@@ -244,10 +244,7 @@ class SrlTransformersSpanReader(SrlReader):
             if sentence.srl_frames:
                 for (_, tags) in sentence.srl_frames:
                     verb_indicator = [1 if label[-2:] == "-V" else 0 for label in tags]
-                    frames = [
-                        f if v == 1 else "O"
-                        for f, v in zip(sentence.predicate_framenet_ids, verb_indicator)
-                    ]
+                    frames = self._get_predicate_labels(sentence, verb_indicator)
                     lemmas = [
                         f for f, v in zip(sentence.predicate_lemmas, verb_indicator) if v == 1
                     ]
@@ -358,6 +355,19 @@ class SrlTransformersSpanReader(SrlReader):
 
         # Add O tags for cls and sep tokens.
         return ["O"] + new_tags + ["O"]
+
+    def _get_predicate_labels(self, sentence, verb_indicator):
+        frames = [f if v == 1 else "O" for f, v in zip(frame_labels, verb_indicator)]
+        labels = []
+        for i, v in enumerate(verb_indicator):
+            if v == 1:
+                label = (
+                    "{}.{}".format(sentence.predicate_lemmas[i], sentence.predicate_framenet_ids[i])
+                    if sentence.predicate_framenet_ids[i].isdigit()
+                    else sentence.predicate_framenet_ids[i]
+                )
+                labels.append(label)
+        return labels
 
 
 @DatasetReader.register("transformer_srl_dependency")
