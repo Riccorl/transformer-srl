@@ -337,9 +337,9 @@ class TransformerSrlSpan(SrlBert):
         self.restrict_roles = restrict_roles
 
         if isinstance(bert_model, str):
-            self.bert_model = AutoModel.from_pretrained(bert_model)
+            self.transformer = AutoModel.from_pretrained(bert_model)
         else:
-            self.bert_model = bert_model
+            self.transformer = bert_model
         self.frame_criterion = torch.nn.CrossEntropyLoss()
         self.num_classes = self.vocab.get_vocab_size("labels")
         self.frame_num_classes = self.vocab.get_vocab_size("frames_labels")
@@ -350,9 +350,9 @@ class TransformerSrlSpan(SrlBert):
         else:
             self.span_metric = None
         self.f1_frame_metric = FBetaMeasure(average="micro")
-        self.tag_projection_layer = Linear(self.bert_model.config.hidden_size, self.num_classes)
+        self.tag_projection_layer = Linear(self.transformer.config.hidden_size, self.num_classes)
         self.frame_projection_layer = Linear(
-            self.bert_model.config.hidden_size, self.frame_num_classes
+            self.transformer.config.hidden_size, self.frame_num_classes
         )
         self.embedding_dropout = Dropout(p=embedding_dropout)
         self._label_smoothing = label_smoothing
@@ -408,10 +408,10 @@ class TransformerSrlSpan(SrlBert):
             A scalar loss to be optimised.
         """
         mask = get_text_field_mask(tokens)
-        token_type_ids = torch.zeros_like(verb_indicator)
-        bert_embeddings, _ = self.bert_model(
+        # token_type_ids = torch.zeros_like(verb_indicator)
+        bert_embeddings, _ = self.transformer(
             input_ids=util.get_token_ids_from_text_field_tensors(tokens),
-            token_type_ids=token_type_ids,
+            token_type_ids=verb_indicator,
             attention_mask=mask,
         )
 
@@ -569,7 +569,7 @@ class TransformerSrlSpan(SrlBert):
             metric_dict_filtered = {
                 x.split("-")[0] + "_role": y
                 for x, y in metric_dict.items()
-                if "overall" in x and "f1" in x
+                if "f1-overall" in x
             }
             frame_metric_dict = {
                 x + "_frame": y for x, y in frame_metric_dict.items() if "fscore" in x
