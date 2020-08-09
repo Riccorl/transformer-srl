@@ -428,3 +428,44 @@ class SrlUdpDatasetReader(SrlTransformersSpanReader):
                         yield self.text_to_instance(
                             words, verb_indicator, frame_labels, lemma, role_labels
                         )
+
+    def _convert_tags_to_wordpiece_tags(self, tags: List[str], offsets: List[int]) -> List[str]:
+        """
+        Converts a series of BIO tags to account for a wordpiece tokenizer,
+        extending/modifying BIO tags where appropriate to deal with words which
+        are split into multiple wordpieces by the tokenizer.
+
+        This is only used if you pass a `model_name` to the dataset reader below.
+
+        # Parameters
+
+        tags : `List[str]`
+            The BIO formatted tags to convert to BIO tags for wordpieces
+        offsets : `List[int]`
+            The wordpiece offsets.
+
+        # Returns
+
+        The new BIO tags.
+        """
+        new_tags = []
+        j = 0
+        for i, offset in enumerate(offsets):
+            tag = tags[i]
+            is_o = tag == "O"
+            is_start = True
+            while j < offset:
+                if is_o:
+                    new_tags.append("O")
+
+                elif is_start and tag.startswith("B"):
+                    new_tags.append(tag)
+                    is_start = False
+
+                elif tag.startswith("B"):
+                    _, label = tag.split("-", 1)
+                    new_tags.append("B-" + label)
+                j += 1
+
+        # Add O tags for cls and sep tokens.
+        return ["O"] + new_tags + ["O"]
