@@ -567,9 +567,13 @@ class TransformerSrlSpan(SrlBert):
             # This can be a lot of metrics, as there are 3 per class.
             # we only really care about the overall metrics, so we filter for them here.
             metric_dict_filtered = {
-                x.split("-")[0] + "_role": y for x, y in metric_dict.items() if "overall" in x
+                x.split("-")[0] + "_role": y
+                for x, y in metric_dict.items()
+                if "overall" in x and "f1" in x
             }
-            frame_metric_dict = {x + "_frame": y for x, y in frame_metric_dict.items() if "fscore" in x}
+            frame_metric_dict = {
+                x + "_frame": y for x, y in frame_metric_dict.items() if "fscore" in x
+            }
             return {**metric_dict_filtered, **frame_metric_dict}
 
     def _get_label_tokens(self, namespace: str = "labels"):
