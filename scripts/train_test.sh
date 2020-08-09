@@ -10,4 +10,4 @@ export SRL_VALIDATION_DATA_PATH="$DATASET"
 
 CONFIG="$PROJECT/training_config/bert_tiny_span.jsonnet"
 
-allennlp train "$CONFIG" -s models/test_span --include-package transformer_srl #--recover
+allennlp train "$CONFIG" -s models/test_span --include-package transformer_srl --recover

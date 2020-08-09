@@ -52,51 +52,6 @@ conllu_fields = [
 ]
 
 
-def _convert_tags_to_wordpiece_tags(tags: List[str], offsets: List[int]) -> List[str]:
-    """
-    Converts a series of BIO tags to account for a wordpiece tokenizer,
-    extending/modifying BIO tags where appropriate to deal with words which
-    are split into multiple wordpieces by the tokenizer.
-
-    This is only used if you pass a `model_name` to the dataset reader below.
-
-    # Parameters
-
-    tags : `List[str]`
-        The BIO formatted tags to convert to BIO tags for wordpieces
-    offsets : `List[int]`
-        The wordpiece offsets.
-
-    # Returns
-
-    The new BIO tags.
-    """
-    new_tags = []
-    j = 0
-    for i, offset in enumerate(offsets):
-        tag = tags[i]
-        is_o = tag == "O"
-        is_start = True
-        while j < offset:
-            if is_o:
-                new_tags.append("O")
-
-            elif tag.startswith("I"):
-                new_tags.append(tag)
-
-            elif is_start and tag.startswith("B"):
-                new_tags.append(tag)
-                is_start = False
-
-            elif tag.startswith("B"):
-                _, label = tag.split("-", 1)
-                new_tags.append("I-" + label)
-            j += 1
-
-    # Add O tags for cls and sep tokens.
-    return ["O"] + new_tags + ["O"]
-
-
 def _convert_verb_indices_to_wordpiece_indices(
     verb_indices: List[int], offsets: List[int], binary: bool = True
 ):
@@ -266,9 +221,7 @@ class SrlTransformersSpanReader(SrlReader):
             end_offsets.append(cumulative)
             word_piece_tokens.extend(word_pieces)
 
-        wordpieces = (
-            [self.tokenizer.cls_token] + word_piece_tokens + [self.tokenizer.sep_token]
-        )
+        wordpieces = [self.tokenizer.cls_token] + word_piece_tokens + [self.tokenizer.sep_token]
         return wordpieces, end_offsets, start_offsets
 
     @overrides
@@ -299,7 +252,7 @@ class SrlTransformersSpanReader(SrlReader):
                     ]
                     if not all(v == 0 for v in verb_indicator):
                         yield self.text_to_instance(tokens, verb_indicator, frames, lemmas, tags)
-                
+
     def text_to_instance(  # type: ignore
         self,
         tokens: List[Token],
@@ -349,7 +302,7 @@ class SrlTransformersSpanReader(SrlReader):
         metadata_dict["verb_index"] = verb_index
 
         if tags:
-            new_tags = _convert_tags_to_wordpiece_tags(tags, offsets)
+            new_tags = self._convert_tags_to_wordpiece_tags(tags, offsets)
             new_frames = _convert_frames_indices_to_wordpiece_indices(frames, offsets)
             fields["tags"] = SequenceLabelField(new_tags, text_field)
             fields["frame_tags"] = SequenceLabelField(
@@ -360,6 +313,50 @@ class SrlTransformersSpanReader(SrlReader):
 
         fields["metadata"] = MetadataField(metadata_dict)
         return Instance(fields)
+
+    def _convert_tags_to_wordpiece_tags(self, tags: List[str], offsets: List[int]) -> List[str]:
+        """
+        Converts a series of BIO tags to account for a wordpiece tokenizer,
+        extending/modifying BIO tags where appropriate to deal with words which
+        are split into multiple wordpieces by the tokenizer.
+
+        This is only used if you pass a `model_name` to the dataset reader below.
+
+        # Parameters
+
+        tags : `List[str]`
+            The BIO formatted tags to convert to BIO tags for wordpieces
+        offsets : `List[int]`
+            The wordpiece offsets.
+
+        # Returns
+
+        The new BIO tags.
+        """
+        new_tags = []
+        j = 0
+        for i, offset in enumerate(offsets):
+            tag = tags[i]
+            is_o = tag == "O"
+            is_start = True
+            while j < offset:
+                if is_o:
+                    new_tags.append("O")
+
+                elif tag.startswith("I"):
+                    new_tags.append(tag)
+
+                elif is_start and tag.startswith("B"):
+                    new_tags.append(tag)
+                    is_start = False
+
+                elif tag.startswith("B"):
+                    _, label = tag.split("-", 1)
+                    new_tags.append("I-" + label)
+                j += 1
+
+        # Add O tags for cls and sep tokens.
+        return ["O"] + new_tags + ["O"]
 
 
 @DatasetReader.register("transformer_srl_dep")
@@ -410,6 +407,8 @@ class SrlUdpDatasetReader(SrlTransformersSpanReader):
                 if "frame" not in annotation[0] or "roles" not in annotation[0]:
                     continue
                 frames = [x["frame"] for x in annotation]
+                # clean C-V tags (not needed yet)
+                frames = [f if f != "C-V" else "_" for f in frames]
                 roles = [x["roles"] for x in annotation]
                 # transpose rolses, to have a list of roles per frame
                 roles = list(map(list, zip(*roles)))
@@ -418,14 +417,54 @@ class SrlUdpDatasetReader(SrlTransformersSpanReader):
                     if frame != "_":
                         verb_indicator = [0] * len(frames)
                         verb_indicator[i] = 1
-                        frame_lables = ["O"] * len(frames)
-                        frame_lables[i] = frame
-                        role_labels = [
-                            "B-" + r if r != "_" else "O" for r in roles[current_frame]
-                        ]
+                        frame_labels = ["O"] * len(frames)
+                        frame_labels[i] = frame
+                        role_labels = ["B-" + r if r != "_" else "O" for r in roles[current_frame]]
+                        # add V tag to the verb role
                         role_labels[i] = "B-V"
                         lemma = lemmas[i]
                         current_frame += 1
                         yield self.text_to_instance(
-                            words, verb_indicator, frame_lables, lemma, role_labels
+                            words, verb_indicator, frame_labels, lemma, role_labels
                         )
+
+    def _convert_tags_to_wordpiece_tags(self, tags: List[str], offsets: List[int]) -> List[str]:
+        """
+        Converts a series of BIO tags to account for a wordpiece tokenizer,
+        extending/modifying BIO tags where appropriate to deal with words which
+        are split into multiple wordpieces by the tokenizer.
+
+        This is only used if you pass a `model_name` to the dataset reader below.
+
+        # Parameters
+
+        tags : `List[str]`
+            The BIO formatted tags to convert to BIO tags for wordpieces
+        offsets : `List[int]`
+            The wordpiece offsets.
+
+        # Returns
+
+        The new BIO tags.
+        """
+        new_tags = []
+        j = 0
+        for i, offset in enumerate(offsets):
+            tag = tags[i]
+            is_o = tag == "O"
+            is_start = True
+            while j < offset:
+                if is_o:
+                    new_tags.append("O")
+
+                elif is_start and tag.startswith("B"):
+                    new_tags.append(tag)
+                    is_start = False
+
+                elif tag.startswith("B"):
+                    _, label = tag.split("-", 1)
+                    new_tags.append("B-" + label)
+                j += 1
+
+        # Add O tags for cls and sep tokens.
+        return ["O"] + new_tags + ["O"]

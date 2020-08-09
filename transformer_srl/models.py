@@ -411,7 +411,7 @@ class TransformerSrlSpan(SrlBert):
         # token_type_ids = torch.zeros_like(verb_indicator)
         bert_embeddings, _ = self.transformer(
             input_ids=util.get_token_ids_from_text_field_tensors(tokens),
-            token_type_ids=verb_indicator,
+            #token_type_ids=verb_indicator,
             attention_mask=mask,
         )
 
