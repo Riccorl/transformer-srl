@@ -46,7 +46,8 @@ conllu_fields = [
     "feats",
     "head",
     "deprel",
-    "is_frame",
+    "dunno",
+    "dunno2",
     "frame",
     "roles",
 ]
