@@ -1,5 +1,7 @@
 import logging
+import logging
 from typing import Dict, List, Iterable, Tuple, Any
+from typing import Dict, Tuple, List
 
 from allennlp.common.file_utils import cached_path
 from allennlp.data.dataset_readers.dataset_reader import DatasetReader
@@ -13,14 +15,9 @@ from allennlp.data.token_indexers import (
 from allennlp.data.tokenizers import Token
 from allennlp_models.common.ontonotes import Ontonotes, OntonotesSentence
 from allennlp_models.structured_prediction import SrlReader
+from conllu import parse_incr
 from overrides import overrides
 from transformers import AutoTokenizer
-
-from typing import Dict, Tuple, List
-import logging
-
-from conllu import parse_incr
-
 
 logger = logging.getLogger(__name__)
 
@@ -357,7 +354,6 @@ class SrlTransformersSpanReader(SrlReader):
         return ["O"] + new_tags + ["O"]
 
     def _get_predicate_labels(self, sentence, verb_indicator):
-        frames = [f if v == 1 else "O" for f, v in zip(frame_labels, verb_indicator)]
         labels = []
         for i, v in enumerate(verb_indicator):
             if v == 1:
@@ -367,6 +363,8 @@ class SrlTransformersSpanReader(SrlReader):
                     else sentence.predicate_framenet_ids[i]
                 )
                 labels.append(label)
+            else:
+                labels.append("O")
         return labels
 
 
