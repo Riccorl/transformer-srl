@@ -150,24 +150,24 @@ class TransformerSrlDependency(Model):
 
         # extract embeddings
         embedded_text_input = self.embedding_dropout(bert_embeddings)
-        frame_embeddings = embedded_text_input[frame_indicator == 1]
+        # frame_embeddings = embedded_text_input[frame_indicator == 1]
         # get sizes
         batch_size, sequence_length, _ = embedded_text_input.size()
         # outputs
         logits = self.tag_projection_layer(embedded_text_input)
-        frame_logits = self.frame_projection_layer(frame_embeddings)
+        # frame_logits = self.frame_projection_layer(frame_embeddings)
 
         reshaped_log_probs = logits.view(-1, self.num_classes)
         role_probabilities = F.softmax(reshaped_log_probs, dim=-1).view(
             [batch_size, sequence_length, self.num_classes]
         )
-        frame_probabilities = F.softmax(frame_logits, dim=-1)
+        frame_probabilities = F.softmax(logits, dim=-1)
         # We need to retain the mask in the output dictionary
         # so that we can crop the sequences to remove padding
         # when we do viterbi inference in self.make_output_human_readable.
         output_dict = {
             "logits": logits,
-            "frame_logits": frame_logits,
+            "frame_logits": logits,
             "role_probabilities": role_probabilities,
             "frame_probabilities": frame_probabilities,
             "mask": mask,
@@ -186,11 +186,11 @@ class TransformerSrlDependency(Model):
             # )
             role_loss = self.role_criterion(logits.view(-1, self.num_classes), tags.view(-1))
             # compute frame loss
-            frame_tags_filtered = frame_tags[frame_indicator == 1]
-            frame_loss = self.frame_criterion(frame_logits, frame_tags_filtered)
+            # frame_tags_filtered = frame_tags[frame_indicator == 1]
+            frame_loss = self.frame_criterion(logits, frame_tags)
 
             self.f1_role_metric(role_probabilities, tags)
-            self.f1_frame_metric(frame_logits, frame_tags_filtered)
+            self.f1_frame_metric(logits, frame_tags)
 
             output_dict["frame_loss"] = frame_loss
             output_dict["role_loss"] = role_loss
@@ -340,7 +340,7 @@ class TransformerSrlSpan(SrlBert):
             self.transformer = AutoModel.from_pretrained(bert_model)
         else:
             self.transformer = bert_model
-        self.frame_criterion = torch.nn.CrossEntropyLoss()
+        self.frame_criterion = torch.nn.CrossEntropyLoss(ignore_index=0)
         self.num_classes = self.vocab.get_vocab_size("labels")
         self.frame_num_classes = self.vocab.get_vocab_size("frames_labels")
         if srl_eval_path is not None:
@@ -349,7 +349,9 @@ class TransformerSrlSpan(SrlBert):
             self.span_metric = SrlEvalScorer(srl_eval_path, ignore_classes=["V"])
         else:
             self.span_metric = None
-        self.f1_frame_metric = FBetaMeasure(average="micro")
+        frame_set = self.vocab.get_token_to_index_vocabulary("frames_labels")
+        frame_set_filter = [v for k, v in frame_set.items() if k != "O"]
+        self.f1_frame_metric = FBetaMeasure(average="micro", labels=frame_set_filter)
         self.tag_projection_layer = Linear(self.transformer.config.hidden_size, self.num_classes)
         self.frame_projection_layer = Linear(
             self.transformer.config.hidden_size, self.frame_num_classes
@@ -414,15 +416,16 @@ class TransformerSrlSpan(SrlBert):
             token_type_ids=verb_indicator,
             attention_mask=mask,
         )
-
+        mask_frame = mask.clone()
+        mask_frame[verb_indicator == 0] = False
         # extract embeddings
         embedded_text_input = self.embedding_dropout(bert_embeddings)
-        frame_embeddings = embedded_text_input[frame_indicator == 1]
+        # frame_embeddings = embedded_text_input[frame_indicator == 1]
         # get sizes
         batch_size, sequence_length, _ = embedded_text_input.size()
         # outputs
         logits = self.tag_projection_layer(embedded_text_input)
-        frame_logits = self.frame_projection_layer(frame_embeddings)
+        frame_logits = self.frame_projection_layer(embedded_text_input)
 
         reshaped_log_probs = logits.view(-1, self.num_classes)
         class_probabilities = F.softmax(reshaped_log_probs, dim=-1).view(
@@ -453,8 +456,11 @@ class TransformerSrlSpan(SrlBert):
                 logits, tags, mask, label_smoothing=self._label_smoothing
             )
             # compute frame loss
-            frame_tags_filtered = frame_tags[frame_indicator == 1]
-            frame_loss = self.frame_criterion(frame_logits, frame_tags_filtered)
+            # frame_tags_filtered = frame_tags[frame_indicator == 1]
+            # frame_loss = self.frame_criterion(frame_logits, frame_tags)
+            frame_loss = sequence_cross_entropy_with_logits(
+                frame_logits, frame_tags, mask_frame, label_smoothing=self._label_smoothing
+            )
             if not self.ignore_span_metric and self.span_metric is not None and not self.training:
                 batch_verb_indices = [
                     example_metadata["verb_index"] for example_metadata in metadata
@@ -481,7 +487,7 @@ class TransformerSrlSpan(SrlBert):
                     batch_conll_predicted_tags,
                     batch_conll_gold_tags,
                 )
-            self.f1_frame_metric(frame_logits, frame_tags_filtered)
+            self.f1_frame_metric(frame_logits, frame_tags)
             output_dict["frame_loss"] = frame_loss
             output_dict["role_loss"] = role_loss
             output_dict["loss"] = (role_loss + frame_loss) / 2
@@ -517,11 +523,12 @@ class TransformerSrlSpan(SrlBert):
             frame_predictions = frame_probabilities.argmax(dim=-1).cpu().data.numpy()
 
         output_dict["frame_tags"] = [
-            self.vocab.get_token_from_index(f, namespace="frames_labels") for f in frame_predictions
+            [self.vocab.get_token_from_index(f, namespace="frames_labels") for f in frames]
+            for frames in frame_predictions
         ]
-        output_dict["frame_scores"] = [
-            fp[f] for f, fp in zip(frame_predictions, frame_probabilities)
-        ]
+        # output_dict["frame_scores"] = [
+        #     fp[f] for f, fp in zip(frame_predictions, frame_probabilities)
+        # ]
         return output_dict
 
     @overrides
@@ -569,8 +576,7 @@ class TransformerSrlSpan(SrlBert):
             metric_dict_filtered = {
                 x.split("-")[0] + "_role": y
                 for x, y in metric_dict.items()
-                if "overall" in x
-                and "f1" in x
+                if "overall" in x and "f1" in x
             }
             frame_metric_dict = {
                 x + "_frame": y for x, y in frame_metric_dict.items() if "fscore" in x
