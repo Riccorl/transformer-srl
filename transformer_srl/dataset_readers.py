@@ -1,6 +1,5 @@
 import logging
-import logging
-from typing import Dict, List, Iterable, Tuple, Any
+from typing import Any
 from typing import Dict, Tuple, List
 
 from allennlp.common.file_utils import cached_path
@@ -10,10 +9,9 @@ from allennlp.data.instance import Instance
 from allennlp.data.token_indexers import (
     TokenIndexer,
     PretrainedTransformerIndexer,
-    PretrainedTransformerMismatchedIndexer,
 )
 from allennlp.data.tokenizers import Token
-from allennlp_models.common.ontonotes import Ontonotes, OntonotesSentence
+from allennlp_models.common.ontonotes import Ontonotes
 from allennlp_models.structured_prediction import SrlReader
 from conllu import parse_incr
 from overrides import overrides
