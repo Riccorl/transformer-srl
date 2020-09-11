@@ -1,8 +1,10 @@
 import logging
+import pathlib
 from typing import Any
 from typing import Dict, Tuple, List
 
 from allennlp.common.file_utils import cached_path
+from allennlp.data import Vocabulary
 from allennlp.data.dataset_readers.dataset_reader import DatasetReader
 from allennlp.data.fields import Field, TextField, SequenceLabelField, MetadataField
 from allennlp.data.instance import Instance
@@ -17,7 +19,12 @@ from conllu import parse_incr
 from overrides import overrides
 from transformers import AutoTokenizer
 
+from transformer_srl.utils import load_label_list
+
 logger = logging.getLogger(__name__)
+
+FRAME_LIST_PATH = pathlib.Path(__file__).resolve().parent / "resources" / "framelist.txt"
+
 
 """
 ID: Word index, integer starting at 1 for each new sentence; may be a range for tokens with multiple words.
@@ -164,7 +171,6 @@ class SrlTransformersSpanReader(SrlReader):
             "tokens": PretrainedTransformerIndexer(model_name)
         }
         self._domain_identifier = domain_identifier
-
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
         self.lowercase_input = "uncased" in model_name
 
@@ -232,19 +238,26 @@ class SrlTransformersSpanReader(SrlReader):
                 self._domain_identifier,
             )
 
-        for sentence in self._ontonotes_subset(
-            ontonotes_reader, file_path, self._domain_identifier
-        ):
-            tokens = [Token(t) for t in sentence.words]
-            if sentence.srl_frames:
-                for (_, tags) in sentence.srl_frames:
-                    verb_indicator = [1 if label[-2:] == "-V" else 0 for label in tags]
-                    frames = self._get_predicate_labels(sentence, verb_indicator)
-                    lemmas = [
-                        f for f, v in zip(sentence.predicate_lemmas, verb_indicator) if v == 1
-                    ]
-                    if not all(v == 0 for v in verb_indicator):
-                        yield self.text_to_instance(tokens, verb_indicator, frames, lemmas, tags)
+        counter = 0
+        try:
+            for sentence in self._ontonotes_subset(
+                ontonotes_reader, file_path, self._domain_identifier
+            ):
+                tokens = [Token(t) for t in sentence.words]
+                if sentence.srl_frames:
+                    for (_, tags) in sentence.srl_frames:
+                        verb_indicator = [1 if label[-2:] == "-V" else 0 for label in tags]
+                        frames = self._get_predicate_labels(sentence, verb_indicator)
+                        lemmas = [
+                            f for f, v in zip(sentence.predicate_lemmas, verb_indicator) if v == 1
+                        ]
+                        if not all(v == 0 for v in verb_indicator):
+                            yield self.text_to_instance(
+                                tokens, verb_indicator, frames, lemmas, tags
+                            )
+                counter += 1
+        except:
+            print("COUNTER", counter)
 
     def text_to_instance(  # type: ignore
         self,
@@ -353,16 +366,22 @@ class SrlTransformersSpanReader(SrlReader):
 
     def _get_predicate_labels(self, sentence, verb_indicator):
         labels = []
-        for i, v in enumerate(verb_indicator):
-            if v == 1:
-                label = (
-                    "{}.{}".format(sentence.predicate_lemmas[i], sentence.predicate_framenet_ids[i])
-                    if sentence.predicate_framenet_ids[i].isdigit()
-                    else sentence.predicate_framenet_ids[i]
-                )
-                labels.append(label)
-            else:
-                labels.append("O")
+        try:
+            for i, v in enumerate(verb_indicator):
+                if v == 1:
+                    label = (
+                        "{}.{}".format(
+                            sentence.predicate_lemmas[i], sentence.predicate_framenet_ids[i]
+                        )
+                        if sentence.predicate_framenet_ids[i].isdigit()
+                        else sentence.predicate_framenet_ids[i]
+                    )
+                    labels.append(label)
+                else:
+                    labels.append("O")
+        except:
+            print(sentence.words)
+            print(sentence.predicate_framenet_ids)
         return labels
 
 

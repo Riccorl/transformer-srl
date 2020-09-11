@@ -29,3 +29,16 @@ def load_lemma_frame(filename: pathlib.Path) -> Dict:
             k, *v = l.split()
             dictionary[k] += v
     return dictionary
+
+
+def load_label_list(filename: pathlib.Path):
+    """
+    Load label list from file
+    :param filename: file to read.
+    :return: a dictionary.
+    """
+    label_list = []
+    with open(filename) as file:
+        for l in file:
+            label_list.append(l.strip())
+    return label_list

@@ -1,6 +1,4 @@
-import os
 import pathlib
-from collections import defaultdict
 from typing import Dict, List, Any, Union
 
 import numpy as np
@@ -9,11 +7,7 @@ import torch.nn.functional as F
 from allennlp.data import TextFieldTensors, Vocabulary
 from allennlp.models.model import Model
 from allennlp.nn import InitializerApplicator, util
-from allennlp.nn.util import (
-    get_lengths_from_binary_sequence_mask,
-    viterbi_decode,
-    get_device_of,
-)
+from allennlp.nn.util import get_device_of
 from allennlp.nn.util import get_text_field_mask, sequence_cross_entropy_with_logits
 from allennlp.training.metrics.fbeta_measure import FBetaMeasure
 from allennlp_models.structured_prediction import SrlBert
@@ -21,15 +15,15 @@ from allennlp_models.structured_prediction.metrics.srl_eval_scorer import (
     DEFAULT_SRL_EVAL_PATH,
     SrlEvalScorer,
 )
-from allennlp.modules.token_embedders import PretrainedTransformerMismatchedEmbedder
 from overrides import overrides
 from torch.nn.modules import Linear, Dropout
 from transformers import AutoModel
 
-from transformer_srl.utils import load_lemma_frame, load_role_frame
+from transformer_srl.utils import load_lemma_frame, load_role_frame, load_label_list
 
 LEMMA_FRAME_PATH = pathlib.Path(__file__).resolve().parent / "resources" / "lemma2frame.csv"
 FRAME_ROLE_PATH = pathlib.Path(__file__).resolve().parent / "resources" / "frame2role.csv"
+FRAME_LIST_PATH = pathlib.Path(__file__).resolve().parent / "resources" / "framelist.txt"
 
 
 @Model.register("transformer_srl_dependency")
@@ -341,6 +335,9 @@ class TransformerSrlSpan(SrlBert):
         else:
             self.transformer = bert_model
         self.frame_criterion = torch.nn.CrossEntropyLoss()
+        # add missing labels
+        frame_list = load_label_list(FRAME_LIST_PATH)
+        self.vocab.add_tokens_to_namespace(frame_list, "frames_labels")
         self.num_classes = self.vocab.get_vocab_size("labels")
         self.frame_num_classes = self.vocab.get_vocab_size("frames_labels")
         if srl_eval_path is not None:
@@ -569,8 +566,7 @@ class TransformerSrlSpan(SrlBert):
             metric_dict_filtered = {
                 x.split("-")[0] + "_role": y
                 for x, y in metric_dict.items()
-                if "overall" in x
-                and "f1" in x
+                if "overall" in x and "f1" in x
             }
             frame_metric_dict = {
                 x + "_frame": y for x, y in frame_metric_dict.items() if "fscore" in x
