@@ -55,6 +55,25 @@ conllu_fields = [
 ]
 
 
+conll2009_fields = [
+    "id",
+    "form",
+    "lemma",
+    "plemma",
+    "pos",
+    "ppos",
+    "feat",
+    "pfeat",
+    "head",
+    "phead",
+    "deprel",
+    "pdeprel",
+    "fillpred",
+    "frame",
+    "roles",
+]
+
+
 def _convert_verb_indices_to_wordpiece_indices(
     verb_indices: List[int], offsets: List[int], binary: bool = True
 ):
@@ -403,20 +422,25 @@ class SrlUdpDatasetReader(SrlTransformersSpanReader):
     """
 
     def __init__(
-        self, token_indexers: Dict[str, TokenIndexer] = None, model_name: str = None, **kwargs,
+        self,
+        token_indexers: Dict[str, TokenIndexer] = None,
+        model_name: str = None,
+        format: str = None,
+        **kwargs,
     ) -> None:
         super().__init__(token_indexers=token_indexers, model_name=model_name, **kwargs)
+        self.format = format
 
     @overrides
     def _read(self, file_path: str):
         # if `file_path` is a URL, redirect to the cache
         file_path = cached_path(file_path)
-        with open(file_path, "r") as conllu_file:
-            logger.info("Reading UD instances from conllu dataset at: %s", file_path)
+        with open(file_path, "r") as conll_file:
+            logger.info("Reading instances from dataset at: %s", file_path)
 
             for annotation in parse_incr(
-                conllu_file,
-                fields=conllu_fields,
+                conll_file,
+                fields=conllu_fields if self.format == "conllu" else conll2009_fields,
                 field_parsers={"roles": lambda line, i: line[i:]},
             ):
                 # CoNLLU annotations sometimes add back in words that have been elided
