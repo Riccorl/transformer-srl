@@ -405,11 +405,9 @@ class TransformerSrlSpan(SrlBert):
             A scalar loss to be optimised.
         """
         mask = get_text_field_mask(tokens)
-        # token_type_ids = torch.zeros_like(verb_indicator)
+        input_ids = util.get_token_ids_from_text_field_tensors(tokens)
         bert_embeddings, _ = self.transformer(
-            input_ids=util.get_token_ids_from_text_field_tensors(tokens),
-            token_type_ids=verb_indicator,
-            attention_mask=mask,
+            input_ids=input_ids, token_type_ids=verb_indicator, attention_mask=mask,
         )
 
         # extract embeddings
@@ -425,6 +423,7 @@ class TransformerSrlSpan(SrlBert):
         class_probabilities = F.softmax(reshaped_log_probs, dim=-1).view(
             [batch_size, sequence_length, self.num_classes]
         )
+
         frame_probabilities = F.softmax(frame_logits, dim=-1)
         # We need to retain the mask in the output dictionary
         # so that we can crop the sequences to remove padding

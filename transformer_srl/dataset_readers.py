@@ -257,26 +257,20 @@ class SrlTransformersSpanReader(SrlReader):
                 self._domain_identifier,
             )
 
-        counter = 0
-        try:
-            for sentence in self._ontonotes_subset(
-                ontonotes_reader, file_path, self._domain_identifier
-            ):
-                tokens = [Token(t) for t in sentence.words]
-                if sentence.srl_frames:
-                    for (_, tags) in sentence.srl_frames:
-                        verb_indicator = [1 if label[-2:] == "-V" else 0 for label in tags]
-                        frames = self._get_predicate_labels(sentence, verb_indicator)
-                        lemmas = [
-                            f for f, v in zip(sentence.predicate_lemmas, verb_indicator) if v == 1
-                        ]
-                        if not all(v == 0 for v in verb_indicator):
-                            yield self.text_to_instance(
-                                tokens, verb_indicator, frames, lemmas, tags
-                            )
-                counter += 1
-        except:
-            print("COUNTER", counter)
+        for sentence in self._ontonotes_subset(
+            ontonotes_reader, file_path, self._domain_identifier
+        ):
+            tokens = [Token(t) for t in sentence.words]
+            sentence_id = sentence.sentence_id
+            if sentence.srl_frames:
+                for (_, tags) in sentence.srl_frames:
+                    verb_indicator = [1 if label[-2:] == "-V" else 0 for label in tags]
+                    frames = self._get_predicate_labels(sentence, verb_indicator)
+                    lemmas = [
+                        f for f, v in zip(sentence.predicate_lemmas, verb_indicator) if v == 1
+                    ]
+                    if not all(v == 0 for v in verb_indicator):
+                        yield self.text_to_instance(tokens, verb_indicator, frames, lemmas, tags, sentence_id)
 
     def text_to_instance(  # type: ignore
         self,
@@ -285,6 +279,7 @@ class SrlTransformersSpanReader(SrlReader):
         frames: List[str] = None,
         lemmas: List[str] = None,
         tags: List[str] = None,
+        sentence_id = None
     ) -> Instance:
         """
         We take `pre-tokenized` input here, along with a verb label.  The verb label should be a
@@ -325,6 +320,7 @@ class SrlTransformersSpanReader(SrlReader):
         metadata_dict["lemmas"] = lemmas
         metadata_dict["verb"] = verb
         metadata_dict["verb_index"] = verb_index
+        metadata_dict["sentence_id"] = sentence_id
 
         if tags:
             new_tags = self._convert_tags_to_wordpiece_tags(tags, offsets)
@@ -385,22 +381,18 @@ class SrlTransformersSpanReader(SrlReader):
 
     def _get_predicate_labels(self, sentence, verb_indicator):
         labels = []
-        try:
-            for i, v in enumerate(verb_indicator):
-                if v == 1:
-                    label = (
-                        "{}.{}".format(
-                            sentence.predicate_lemmas[i], sentence.predicate_framenet_ids[i]
-                        )
-                        if sentence.predicate_framenet_ids[i].isdigit()
-                        else sentence.predicate_framenet_ids[i]
+        for i, v in enumerate(verb_indicator):
+            if v == 1:
+                label = (
+                    "{}.{}".format(
+                        sentence.predicate_lemmas[i], sentence.predicate_framenet_ids[i]
                     )
-                    labels.append(label)
-                else:
-                    labels.append("O")
-        except:
-            print(sentence.words)
-            print(sentence.predicate_framenet_ids)
+                    if sentence.predicate_framenet_ids[i].isdigit()
+                    else sentence.predicate_framenet_ids[i]
+                )
+                labels.append(label)
+            else:
+                labels.append("O")
         return labels
 
 
