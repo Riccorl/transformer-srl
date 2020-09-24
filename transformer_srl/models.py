@@ -337,7 +337,7 @@ class TransformerSrlSpan(SrlBert):
         self.frame_criterion = torch.nn.CrossEntropyLoss()
         # add missing labels
         frame_list = load_label_list(FRAME_LIST_PATH)
-        # self.vocab.add_tokens_to_namespace(frame_list, "frames_labels")
+        self.vocab.add_tokens_to_namespace(frame_list, "frames_labels")
         self.num_classes = self.vocab.get_vocab_size("labels")
         self.frame_num_classes = self.vocab.get_vocab_size("frames_labels")
         if srl_eval_path is not None:
