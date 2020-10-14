@@ -256,7 +256,6 @@ class SrlTransformersSpanReader(SrlReader):
                 "Filtering to only include file paths containing the %s domain",
                 self._domain_identifier,
             )
-
         for sentence in self._ontonotes_subset(
             ontonotes_reader, file_path, self._domain_identifier
         ):
@@ -270,7 +269,9 @@ class SrlTransformersSpanReader(SrlReader):
                         f for f, v in zip(sentence.predicate_lemmas, verb_indicator) if v == 1
                     ]
                     if not all(v == 0 for v in verb_indicator):
-                        yield self.text_to_instance(tokens, verb_indicator, frames, lemmas, tags, sentence_id)
+                        yield self.text_to_instance(
+                            tokens, verb_indicator, frames, lemmas, tags, sentence_id
+                        )
 
     def text_to_instance(  # type: ignore
         self,
@@ -279,7 +280,7 @@ class SrlTransformersSpanReader(SrlReader):
         frames: List[str] = None,
         lemmas: List[str] = None,
         tags: List[str] = None,
-        sentence_id = None
+        sentence_id=None,
     ) -> Instance:
         """
         We take `pre-tokenized` input here, along with a verb label.  The verb label should be a
@@ -384,9 +385,7 @@ class SrlTransformersSpanReader(SrlReader):
         for i, v in enumerate(verb_indicator):
             if v == 1:
                 label = (
-                    "{}.{}".format(
-                        sentence.predicate_lemmas[i], sentence.predicate_framenet_ids[i]
-                    )
+                    "{}.{}".format(sentence.predicate_lemmas[i], sentence.predicate_framenet_ids[i])
                     if sentence.predicate_framenet_ids[i].isdigit()
                     else sentence.predicate_framenet_ids[i]
                 )
