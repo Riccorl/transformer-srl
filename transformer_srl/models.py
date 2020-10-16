@@ -67,9 +67,7 @@ class TransformerSrlSpan(SrlBert):
         self.restrict_frames = restrict_frames
         self.restrict_roles = restrict_roles
         if isinstance(bert_model, str):
-            model_config = AutoConfig.from_pretrained(bert_model, type_vocab_size=2)
-            # self.transformer = AutoModel.from_pretrained(bert_model)
-            self.transformer = AutoModel.from_config(model_config)
+            self.transformer = AutoModel.from_pretrained(bert_model)
         else:
             self.transformer = bert_model
         self.frame_criterion = torch.nn.CrossEntropyLoss()
@@ -85,9 +83,11 @@ class TransformerSrlSpan(SrlBert):
         else:
             self.span_metric = None
         self.f1_frame_metric = FBetaMeasure(average="micro")
-        self.tag_projection_layer = Linear(self.transformer.config.hidden_size, self.num_classes)
+        self.tag_projection_layer = Linear(
+            self.transformer.config.hidden_size * 2, self.num_classes
+        )
         self.frame_projection_layer = Linear(
-            self.transformer.config.hidden_size, self.frame_num_classes
+            self.transformer.config.hidden_size * 2, self.frame_num_classes
         )
         self.embedding_dropout = Dropout(p=embedding_dropout)
         self._label_smoothing = label_smoothing
@@ -145,14 +145,29 @@ class TransformerSrlSpan(SrlBert):
         mask = get_text_field_mask(tokens)
         input_ids = util.get_token_ids_from_text_field_tensors(tokens)
         bert_embeddings, _ = self.transformer(
-            input_ids=input_ids, token_type_ids=verb_indicator, attention_mask=mask,
+            input_ids=input_ids,
+            # token_type_ids=verb_indicator,
+            attention_mask=mask,
+        )
+        # get sizes
+        batch_size, sequence_length, _ = bert_embeddings.size()
+        # verb emeddings
+        verb_embeddings = bert_embeddings[
+            torch.arange(batch_size).to(bert_embeddings.device), verb_indicator.argmax(1), :
+        ]
+        verb_embeddings = torch.where(
+            (verb_indicator.sum(1, keepdim=True) > 0).repeat(1, verb_embeddings.shape[-1]),
+            verb_embeddings,
+            torch.zeros_like(verb_embeddings),
+        )
+        bert_embeddings = torch.cat(
+            (bert_embeddings, verb_embeddings.unsqueeze(1).repeat(1, bert_embeddings.shape[1], 1)),
+            dim=2,
         )
 
         # extract embeddings
         embedded_text_input = self.embedding_dropout(bert_embeddings)
         frame_embeddings = embedded_text_input[frame_indicator == 1]
-        # get sizes
-        batch_size, sequence_length, _ = embedded_text_input.size()
         # outputs
         logits = self.tag_projection_layer(embedded_text_input)
         frame_logits = self.frame_projection_layer(frame_embeddings)
