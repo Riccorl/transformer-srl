@@ -84,10 +84,10 @@ class TransformerSrlSpan(SrlBert):
             self.span_metric = None
         self.f1_frame_metric = FBetaMeasure(average="micro")
         self.tag_projection_layer = Linear(
-            self.transformer.config.hidden_size * 2, self.num_classes
+            self.transformer.config.hidden_size, self.num_classes
         )
         self.frame_projection_layer = Linear(
-            self.transformer.config.hidden_size * 2, self.frame_num_classes
+            self.transformer.config.hidden_size, self.frame_num_classes
         )
         self.embedding_dropout = Dropout(p=embedding_dropout)
         self._label_smoothing = label_smoothing
@@ -99,6 +99,7 @@ class TransformerSrlSpan(SrlBert):
         tokens: TextFieldTensors,
         verb_indicator: torch.Tensor,
         frame_indicator: torch.Tensor,
+        sentence_end: torch.LongTensor,
         metadata: List[Any],
         tags: torch.LongTensor = None,
         frame_tags: torch.LongTensor = None,
@@ -142,31 +143,57 @@ class TransformerSrlSpan(SrlBert):
         loss : `torch.FloatTensor`, optional
             A scalar loss to be optimised.
         """
+        # mask = get_text_field_mask(tokens)
+        # input_ids = util.get_token_ids_from_text_field_tensors(tokens)
+        # bert_embeddings, _ = self.transformer(
+        #     input_ids=input_ids,
+        #     # token_type_ids=verb_indicator,
+        #     attention_mask=mask,
+        # )
+        # # get sizes
+        # batch_size, sequence_length, _ = bert_embeddings.size()
+
+        # # verb emeddings
+        # verb_embeddings = bert_embeddings[
+        #     torch.arange(batch_size).to(bert_embeddings.device), verb_indicator.argmax(1), :
+        # ]
+        # verb_embeddings = torch.where(
+        #     (verb_indicator.sum(1, keepdim=True) > 0).repeat(1, verb_embeddings.shape[-1]),
+        #     verb_embeddings,
+        #     torch.zeros_like(verb_embeddings),
+        # )
+        # bert_embeddings = torch.cat(
+        #     (bert_embeddings, verb_embeddings.unsqueeze(1).repeat(1, bert_embeddings.shape[1], 1)),
+        #     dim=2,
+        # )
+        # mask = tokens["tokens"]["mask"]
+        # index = mask.sum(1).argmax().item()
+
         mask = get_text_field_mask(tokens)
-        input_ids = util.get_token_ids_from_text_field_tensors(tokens)
         bert_embeddings, _ = self.transformer(
-            input_ids=input_ids,
+            input_ids=util.get_token_ids_from_text_field_tensors(tokens),
             # token_type_ids=verb_indicator,
             attention_mask=mask,
         )
-        # get sizes
-        batch_size, sequence_length, _ = bert_embeddings.size()
-        # verb emeddings
-        verb_embeddings = bert_embeddings[
-            torch.arange(batch_size).to(bert_embeddings.device), verb_indicator.argmax(1), :
-        ]
-        verb_embeddings = torch.where(
-            (verb_indicator.sum(1, keepdim=True) > 0).repeat(1, verb_embeddings.shape[-1]),
-            verb_embeddings,
-            torch.zeros_like(verb_embeddings),
-        )
-        bert_embeddings = torch.cat(
-            (bert_embeddings, verb_embeddings.unsqueeze(1).repeat(1, bert_embeddings.shape[1], 1)),
-            dim=2,
-        )
+
+        batch_size, _ = mask.size()
+        embedded_text_input = self.embedding_dropout(bert_embeddings)
+        # Restrict to sentence part
+        sentence_mask = (
+            torch.arange(mask.shape[1]).unsqueeze(0).repeat(batch_size, 1).to(mask.device)
+            < sentence_end.unsqueeze(1).repeat(1, mask.shape[1])
+        ).long()
+        cutoff = sentence_end.max().item()
+
+        # encoded_text = embedded_text_input
+        mask = sentence_mask[:, :cutoff].contiguous()
+        embedded_text_input = embedded_text_input[:, :cutoff, :]
+        tags = tags[:, :cutoff].contiguous()
+
+        sequence_length = embedded_text_input.shape[1]
 
         # extract embeddings
-        embedded_text_input = self.embedding_dropout(bert_embeddings)
+        # embedded_text_input = self.embedding_dropout(bert_embeddings)
         frame_embeddings = embedded_text_input[frame_indicator == 1]
         # outputs
         logits = self.tag_projection_layer(embedded_text_input)

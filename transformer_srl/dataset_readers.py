@@ -6,7 +6,7 @@ from typing import Dict, Tuple, List
 from allennlp.common.file_utils import cached_path
 from allennlp.data import Vocabulary
 from allennlp.data.dataset_readers.dataset_reader import DatasetReader
-from allennlp.data.fields import Field, TextField, SequenceLabelField, MetadataField
+from allennlp.data.fields import Field, TextField, SequenceLabelField, MetadataField, ArrayField
 from allennlp.data.instance import Instance
 from allennlp.data.token_indexers import (
     TokenIndexer,
@@ -18,7 +18,7 @@ from allennlp_models.structured_prediction import SrlReader
 from conllu import parse_incr
 from overrides import overrides
 from transformers import AutoTokenizer
-
+import numpy as np
 from transformer_srl.utils import load_label_list
 
 logger = logging.getLogger(__name__)
@@ -294,6 +294,7 @@ class SrlTransformersSpanReader(SrlReader):
         )
         new_verbs = _convert_verb_indices_to_wordpiece_indices(verb_label, offsets)
         frame_indicator = _convert_frames_indices_to_wordpiece_indices(verb_label, offsets, True)
+        sep_index = wordpieces.index(self.tokenizer.sep_token)
         metadata_dict["offsets"] = start_offsets
         # In order to override the indexing mechanism, we need to set the `text_id`
         # attribute directly. This causes the indexing to use this id.
@@ -308,6 +309,7 @@ class SrlTransformersSpanReader(SrlReader):
             "tokens": text_field,
             "verb_indicator": verb_indicator,
             "frame_indicator": frame_indicator,
+            "sentence_end": ArrayField(np.array(sep_index + 1, dtype=np.int64), dtype=np.int64),
         }
 
         if all(x == 0 for x in verb_label):
