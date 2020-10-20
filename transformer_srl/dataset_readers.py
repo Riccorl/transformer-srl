@@ -1,25 +1,18 @@
 import logging
 import pathlib
-from typing import Any
-from typing import Dict, Tuple, List
+from typing import Any, Dict, List, Tuple
 
 from allennlp.common.file_utils import cached_path
-from allennlp.data import Vocabulary
 from allennlp.data.dataset_readers.dataset_reader import DatasetReader
-from allennlp.data.fields import Field, TextField, SequenceLabelField, MetadataField
+from allennlp.data.fields import Field, MetadataField, SequenceLabelField, TextField
 from allennlp.data.instance import Instance
-from allennlp.data.token_indexers import (
-    TokenIndexer,
-    PretrainedTransformerIndexer,
-)
+from allennlp.data.token_indexers import PretrainedTransformerIndexer, TokenIndexer
 from allennlp.data.tokenizers import Token
 from allennlp_models.common.ontonotes import Ontonotes
 from allennlp_models.structured_prediction import SrlReader
 from conllu import parse_incr
 from overrides import overrides
 from transformers import AutoTokenizer
-
-from transformer_srl.utils import load_label_list
 
 logger = logging.getLogger(__name__)
 

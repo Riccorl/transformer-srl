@@ -1,5 +1,5 @@
 import pathlib
-from typing import Dict, List, Any, Union
+from typing import Any, Dict, List, Union
 
 import numpy as np
 import torch
@@ -7,8 +7,7 @@ import torch.nn.functional as F
 from allennlp.data import TextFieldTensors, Vocabulary
 from allennlp.models.model import Model
 from allennlp.nn import InitializerApplicator, util
-from allennlp.nn.util import get_device_of
-from allennlp.nn.util import get_text_field_mask, sequence_cross_entropy_with_logits
+from allennlp.nn.util import get_device_of, get_text_field_mask, sequence_cross_entropy_with_logits
 from allennlp.training.metrics.fbeta_measure import FBetaMeasure
 from allennlp_models.structured_prediction import SrlBert
 from allennlp_models.structured_prediction.metrics.srl_eval_scorer import (
@@ -16,10 +15,10 @@ from allennlp_models.structured_prediction.metrics.srl_eval_scorer import (
     SrlEvalScorer,
 )
 from overrides import overrides
-from torch.nn.modules import Linear, Dropout
-from transformers import AutoConfig, AutoModel
-
-from transformer_srl.utils import load_lemma_frame, load_role_frame, load_label_list
+from transformers import AutoModel
+from torch import nn
+from transformers.tokenization_auto import AutoTokenizer
+from transformer_srl.utils import load_label_list, load_lemma_frame, load_role_frame
 
 LEMMA_FRAME_PATH = pathlib.Path(__file__).resolve().parent / "resources" / "lemma2frame.csv"
 FRAME_ROLE_PATH = pathlib.Path(__file__).resolve().parent / "resources" / "frame2role.csv"
@@ -68,9 +67,15 @@ class TransformerSrlSpan(SrlBert):
         self.restrict_roles = restrict_roles
         if isinstance(bert_model, str):
             self.transformer = AutoModel.from_pretrained(bert_model)
+            self.tokenizer = AutoTokenizer.from_pretrained(bert_model)
         else:
             self.transformer = bert_model
-        self.frame_criterion = torch.nn.CrossEntropyLoss()
+        self.token_type_embeddings = nn.Embedding(
+            2,
+            self.transformer.config.hidden_size,
+            padding_idx=self.tokenizer.pad_token_id,
+        )
+        self.frame_criterion = nn.CrossEntropyLoss()
         # add missing labels
         frame_list = load_label_list(FRAME_LIST_PATH)
         self.vocab.add_tokens_to_namespace(frame_list, "frames_labels")
@@ -83,13 +88,11 @@ class TransformerSrlSpan(SrlBert):
         else:
             self.span_metric = None
         self.f1_frame_metric = FBetaMeasure(average="micro")
-        self.tag_projection_layer = Linear(
-            self.transformer.config.hidden_size * 2, self.num_classes
+        self.tag_projection_layer = nn.Linear(self.transformer.config.hidden_size, self.num_classes)
+        self.frame_projection_layer = nn.Linear(
+            self.transformer.config.hidden_size, self.frame_num_classes
         )
-        self.frame_projection_layer = Linear(
-            self.transformer.config.hidden_size * 2, self.frame_num_classes
-        )
-        self.embedding_dropout = Dropout(p=embedding_dropout)
+        self.embedding_dropout = nn.Dropout(p=embedding_dropout)
         self._label_smoothing = label_smoothing
         self.ignore_span_metric = ignore_span_metric
         initializer(self)
@@ -152,19 +155,21 @@ class TransformerSrlSpan(SrlBert):
         # get sizes
         batch_size, sequence_length, _ = bert_embeddings.size()
         # verb emeddings
-        verb_embeddings = bert_embeddings[
-            torch.arange(batch_size).to(bert_embeddings.device), verb_indicator.argmax(1), :
-        ]
-        verb_embeddings = torch.where(
-            (verb_indicator.sum(1, keepdim=True) > 0).repeat(1, verb_embeddings.shape[-1]),
-            verb_embeddings,
-            torch.zeros_like(verb_embeddings),
-        )
-        bert_embeddings = torch.cat(
-            (bert_embeddings, verb_embeddings.unsqueeze(1).repeat(1, bert_embeddings.shape[1], 1)),
-            dim=2,
-        )
+        verb_embeddings = self.token_type_embeddings(verb_indicator)
+        # verb_embeddings = bert_embeddings[
+        #     torch.arange(batch_size).to(bert_embeddings.device), verb_indicator.argmax(1), :
+        # ]
+        # verb_embeddings = torch.where(
+        #     (verb_indicator.sum(1, keepdim=True) > 0).repeat(1, verb_embeddings.shape[-1]),
+        #     verb_embeddings,
+        #     torch.zeros_like(verb_embeddings),
+        # )
+        # bert_embeddings = torch.cat(
+        #     (bert_embeddings, verb_embeddings.unsqueeze(1).repeat(1, bert_embeddings.shape[1], 1)),
+        #     dim=2,
+        # )
 
+        bert_embeddings = bert_embeddings + verb_embeddings
         # extract embeddings
         embedded_text_input = self.embedding_dropout(bert_embeddings)
         frame_embeddings = embedded_text_input[frame_indicator == 1]
@@ -380,8 +385,8 @@ class TransformerSrlDependency(Model):
         else:
             self.transformer = model_name
         # loss
-        self.role_criterion = torch.nn.CrossEntropyLoss(ignore_index=0)
-        self.frame_criterion = torch.nn.CrossEntropyLoss()
+        self.role_criterion = nn.CrossEntropyLoss(ignore_index=0)
+        self.frame_criterion = nn.CrossEntropyLoss()
         # number of classes
         self.num_classes = self.vocab.get_vocab_size("labels")
         self.frame_num_classes = self.vocab.get_vocab_size("frames_labels")
@@ -391,11 +396,11 @@ class TransformerSrlDependency(Model):
         self.f1_role_metric = FBetaMeasure(average="micro", labels=role_set_filter)
         self.f1_frame_metric = FBetaMeasure(average="micro")
         # output layer
-        self.tag_projection_layer = Linear(self.transformer.config.hidden_size, self.num_classes)
-        self.frame_projection_layer = Linear(
+        self.tag_projection_layer = nn.Linear(self.transformer.config.hidden_size, self.num_classes)
+        self.frame_projection_layer = nn.Linear(
             self.transformer.config.hidden_size, self.frame_num_classes
         )
-        self.embedding_dropout = Dropout(p=embedding_dropout)
+        self.embedding_dropout = nn.Dropout(p=embedding_dropout)
         self._label_smoothing = label_smoothing
         initializer(self)
 
