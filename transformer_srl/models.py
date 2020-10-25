@@ -15,9 +15,10 @@ from allennlp_models.structured_prediction.metrics.srl_eval_scorer import (
     SrlEvalScorer,
 )
 from overrides import overrides
-from transformers import AutoModel
 from torch import nn
+from transformers import AutoModel
 from transformers.tokenization_auto import AutoTokenizer
+
 from transformer_srl.utils import load_label_list, load_lemma_frame, load_role_frame
 
 LEMMA_FRAME_PATH = pathlib.Path(__file__).resolve().parent / "resources" / "lemma2frame.csv"
@@ -70,11 +71,6 @@ class TransformerSrlSpan(SrlBert):
             self.tokenizer = AutoTokenizer.from_pretrained(bert_model)
         else:
             self.transformer = bert_model
-        self.token_type_embeddings = nn.Embedding(
-            2,
-            self.transformer.config.hidden_size,
-            padding_idx=self.tokenizer.pad_token_id,
-        )
         self.frame_criterion = nn.CrossEntropyLoss()
         # add missing labels
         frame_list = load_label_list(FRAME_LIST_PATH)
@@ -101,6 +97,7 @@ class TransformerSrlSpan(SrlBert):
         self,
         tokens: TextFieldTensors,
         verb_indicator: torch.Tensor,
+        sentence_end: torch.LongTensor,
         frame_indicator: torch.Tensor,
         metadata: List[Any],
         tags: torch.LongTensor = None,
@@ -153,30 +150,28 @@ class TransformerSrlSpan(SrlBert):
             attention_mask=mask,
         )
         # get sizes
-        batch_size, sequence_length, _ = bert_embeddings.size()
-        # verb emeddings
-        verb_embeddings = self.token_type_embeddings(verb_indicator)
-        # verb_embeddings = bert_embeddings[
-        #     torch.arange(batch_size).to(bert_embeddings.device), verb_indicator.argmax(1), :
-        # ]
-        # verb_embeddings = torch.where(
-        #     (verb_indicator.sum(1, keepdim=True) > 0).repeat(1, verb_embeddings.shape[-1]),
-        #     verb_embeddings,
-        #     torch.zeros_like(verb_embeddings),
-        # )
-        # bert_embeddings = torch.cat(
-        #     (bert_embeddings, verb_embeddings.unsqueeze(1).repeat(1, bert_embeddings.shape[1], 1)),
-        #     dim=2,
-        # )
-
-        bert_embeddings = bert_embeddings + verb_embeddings
+        batch_size, _, _ = bert_embeddings.size()
         # extract embeddings
         embedded_text_input = self.embedding_dropout(bert_embeddings)
-        frame_embeddings = embedded_text_input[frame_indicator == 1]
+        sentence_mask = (
+            torch.arange(mask.shape[1]).unsqueeze(0).repeat(batch_size, 1).to(mask.device)
+            < sentence_end.unsqueeze(1).repeat(1, mask.shape[1])
+        ).long()
+        cutoff = sentence_end.max().item()
+
+        encoded_text = embedded_text_input
+        mask = sentence_mask[:, :cutoff].contiguous()
+        encoded_text = encoded_text[:, :cutoff, :]
+        tags = tags[:, :cutoff].contiguous()
+        frame_tags = frame_tags[:, :cutoff].contiguous()
+        frame_indicator = frame_indicator[:, :cutoff].contiguous()
+
+        frame_embeddings = encoded_text[frame_indicator == 1]
         # outputs
-        logits = self.tag_projection_layer(embedded_text_input)
+        logits = self.tag_projection_layer(encoded_text)
         frame_logits = self.frame_projection_layer(frame_embeddings)
 
+        sequence_length = encoded_text.shape[1]
         reshaped_log_probs = logits.view(-1, self.num_classes)
         class_probabilities = F.softmax(reshaped_log_probs, dim=-1).view(
             [batch_size, sequence_length, self.num_classes]

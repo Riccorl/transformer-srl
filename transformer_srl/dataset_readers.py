@@ -2,9 +2,10 @@ import logging
 import pathlib
 from typing import Any, Dict, List, Tuple
 
+import numpy as np
 from allennlp.common.file_utils import cached_path
 from allennlp.data.dataset_readers.dataset_reader import DatasetReader
-from allennlp.data.fields import Field, MetadataField, SequenceLabelField, TextField
+from allennlp.data.fields import ArrayField, Field, MetadataField, SequenceLabelField, TextField
 from allennlp.data.instance import Instance
 from allennlp.data.token_indexers import PretrainedTransformerIndexer, TokenIndexer
 from allennlp.data.tokenizers import Token
@@ -12,59 +13,11 @@ from allennlp_models.common.ontonotes import Ontonotes
 from allennlp_models.structured_prediction import SrlReader
 from conllu import parse_incr
 from overrides import overrides
-from transformers import AutoTokenizer
+from transformers import AutoTokenizer, XLMRobertaTokenizer
 
 logger = logging.getLogger(__name__)
 
 FRAME_LIST_PATH = pathlib.Path(__file__).resolve().parent / "resources" / "framelist.txt"
-
-
-"""
-ID: Word index, integer starting at 1 for each new sentence; may be a range for tokens with multiple words.
-FORM: Word form or punctuation symbol.
-LEMMA: Lemma or stem of word form.
-UPOSTAG: Universal part-of-speech tag drawn from our revised version of the Google universal POS tags.
-XPOSTAG: Language-specific part-of-speech tag; underscore if not available.
-FEATS: List of morphological features from the universal feature inventory or from a defined language-specific extension; underscore if not available.
-HEAD: Head of the current token, which is either a value of ID or zero (0).
-DEPREL: Universal Stanford dependency relation to the HEAD (root iff HEAD = 0) or a defined language-specific subtype of one.
-DEPS: List of secondary dependencies (head-deprel pairs).
-MISC: Any other annotation.
-"""
-
-conllu_fields = [
-    "id",
-    "form",
-    "lemma",
-    "upostag",
-    "xpostag",
-    "feats",
-    "head",
-    "deprel",
-    "dunno",
-    "dunno2",
-    "frame",
-    "roles",
-]
-
-
-conll2009_fields = [
-    "id",
-    "form",
-    "lemma",
-    "plemma",
-    "pos",
-    "ppos",
-    "feat",
-    "pfeat",
-    "head",
-    "phead",
-    "deprel",
-    "pdeprel",
-    "fillpred",
-    "frame",
-    "roles",
-]
 
 
 def _convert_verb_indices_to_wordpiece_indices(
@@ -287,7 +240,15 @@ class SrlTransformersSpanReader(SrlReader):
         )
         new_verbs = _convert_verb_indices_to_wordpiece_indices(verb_label, offsets)
         frame_indicator = _convert_frames_indices_to_wordpiece_indices(verb_label, offsets, True)
-        metadata_dict["offsets"] = start_offsets
+
+        # add verb as information to the model
+        verb_tokens = [token for token, v in zip(wordpieces, new_verbs) if v == 1]
+        verb_tokens = verb_tokens + [self.tokenizer.sep_token]
+        if isinstance(self.tokenizer, XLMRobertaTokenizer):
+            verb_tokens = [self.tokenizer.sep_token] + verb_tokens
+        wordpieces += verb_tokens
+        new_verbs += [0 for _ in range(len(verb_tokens))]
+        frame_indicator += [0 for _ in range(len(verb_tokens))]
         # In order to override the indexing mechanism, we need to set the `text_id`
         # attribute directly. This causes the indexing to use this id.
         text_field = TextField(
@@ -297,10 +258,14 @@ class SrlTransformersSpanReader(SrlReader):
         verb_indicator = SequenceLabelField(new_verbs, text_field)
         frame_indicator = SequenceLabelField(frame_indicator, text_field)
 
+        sep_index = wordpieces.index(self.tokenizer.sep_token)
+        metadata_dict["offsets"] = start_offsets
+
         fields: Dict[str, Field] = {
             "tokens": text_field,
             "verb_indicator": verb_indicator,
             "frame_indicator": frame_indicator,
+            "sentence_end": ArrayField(np.array(sep_index + 1, dtype=np.int64), dtype=np.int64),
         }
 
         if all(x == 0 for x in verb_label):
@@ -317,8 +282,13 @@ class SrlTransformersSpanReader(SrlReader):
         metadata_dict["sentence_id"] = sentence_id
 
         if tags:
+            # roles
             new_tags = self._convert_tags_to_wordpiece_tags(tags, offsets)
+            new_tags += ["O" for _ in range(len(wordpieces) - len(new_tags))]
+            # frames
             new_frames = _convert_frames_indices_to_wordpiece_indices(frames, offsets)
+            new_frames += ["O" for _ in range(len(wordpieces) - len(new_frames))]
+            # for model
             fields["tags"] = SequenceLabelField(new_tags, text_field)
             fields["frame_tags"] = SequenceLabelField(
                 new_frames, text_field, label_namespace="frames_labels"
@@ -386,6 +356,54 @@ class SrlTransformersSpanReader(SrlReader):
             else:
                 labels.append("O")
         return labels
+
+
+"""
+ID: Word index, integer starting at 1 for each new sentence; may be a range for tokens with multiple words.
+FORM: Word form or punctuation symbol.
+LEMMA: Lemma or stem of word form.
+UPOSTAG: Universal part-of-speech tag drawn from our revised version of the Google universal POS tags.
+XPOSTAG: Language-specific part-of-speech tag; underscore if not available.
+FEATS: List of morphological features from the universal feature inventory or from a defined language-specific extension; underscore if not available.
+HEAD: Head of the current token, which is either a value of ID or zero (0).
+DEPREL: Universal Stanford dependency relation to the HEAD (root iff HEAD = 0) or a defined language-specific subtype of one.
+DEPS: List of secondary dependencies (head-deprel pairs).
+MISC: Any other annotation.
+"""
+
+conllu_fields = [
+    "id",
+    "form",
+    "lemma",
+    "upostag",
+    "xpostag",
+    "feats",
+    "head",
+    "deprel",
+    "dunno",
+    "dunno2",
+    "frame",
+    "roles",
+]
+
+
+conll2009_fields = [
+    "id",
+    "form",
+    "lemma",
+    "plemma",
+    "pos",
+    "ppos",
+    "feat",
+    "pfeat",
+    "head",
+    "phead",
+    "deprel",
+    "pdeprel",
+    "fillpred",
+    "frame",
+    "roles",
+]
 
 
 @DatasetReader.register("transformer_srl_dependency")
