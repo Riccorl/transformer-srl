@@ -242,13 +242,13 @@ class SrlTransformersSpanReader(SrlReader):
         frame_indicator = _convert_frames_indices_to_wordpiece_indices(verb_label, offsets, True)
 
         # add verb as information to the model
-        verb_tokens = [token for token, v in zip(wordpieces, new_verbs) if v == 1]
-        verb_tokens = verb_tokens + [self.tokenizer.sep_token]
-        if isinstance(self.tokenizer, XLMRobertaTokenizer):
-            verb_tokens = [self.tokenizer.sep_token] + verb_tokens
-        wordpieces += verb_tokens
-        new_verbs += [0 for _ in range(len(verb_tokens))]
-        frame_indicator += [0 for _ in range(len(verb_tokens))]
+        # verb_tokens = [token for token, v in zip(wordpieces, new_verbs) if v == 1]
+        # verb_tokens = verb_tokens + [self.tokenizer.sep_token]
+        # if isinstance(self.tokenizer, XLMRobertaTokenizer):
+        #     verb_tokens = [self.tokenizer.sep_token] + verb_tokens
+        # wordpieces += verb_tokens
+        # new_verbs += [0 for _ in range(len(verb_tokens))]
+        # frame_indicator += [0 for _ in range(len(verb_tokens))]
         # In order to override the indexing mechanism, we need to set the `text_id`
         # attribute directly. This causes the indexing to use this id.
         text_field = TextField(
