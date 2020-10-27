@@ -53,6 +53,7 @@ class TransformerSrlSpan(SrlBert):
         vocab: Vocabulary,
         bert_model: Union[str, AutoModel],
         embedding_dropout: float = 0.0,
+        num_lstms: int = 2,
         initializer: InitializerApplicator = InitializerApplicator(),
         label_smoothing: float = None,
         ignore_span_metric: bool = False,
@@ -83,11 +84,19 @@ class TransformerSrlSpan(SrlBert):
             self.span_metric = None
         self.f1_frame_metric = FBetaMeasure(average="micro")
         self.predicate_embedding = nn.Embedding(num_embeddings=2, embedding_dim=10)
+        self.lstms = nn.LSTM(
+            config.hidden_size + 10,
+            config.hidden_size,
+            num_layers=num_lstms,
+            dropout=0.2 if num_lstms > 1 else 0,
+            bidirectional=True,
+        )
+        # self.dropout = nn.Dropout(0.4)
         # self.tag_projection_layer = nn.Linear(config.hidden_size, self.num_classes)
         self.tag_projection_layer = torch.nn.Sequential(
-            nn.Linear(config.hidden_size + 10, 300), nn.ReLU(), nn.Linear(300, self.num_classes),
+            nn.Linear(config.hidden_size * 2, 300), nn.ReLU(), nn.Linear(300, self.num_classes),
         )
-        self.frame_projection_layer = nn.Linear(config.hidden_size, self.frame_num_classes)
+        self.frame_projection_layer = nn.Linear(config.hidden_size * 2, self.frame_num_classes)
         self.embedding_dropout = nn.Dropout(p=embedding_dropout)
         self._label_smoothing = label_smoothing
         self.ignore_span_metric = ignore_span_metric
@@ -166,8 +175,9 @@ class TransformerSrlSpan(SrlBert):
 
         predicate_embeddings = self.predicate_embedding(verb_indicator)
         # encoded_text = torch.stack((embedded_text_input, predicate_embeddings), dim=0).sum(dim=0)
-        encoded_text = torch.cat((embedded_text_input, predicate_embeddings), dim=-1)
-        frame_embeddings = embedded_text_input[frame_indicator == 1]
+        embedded_text_input = torch.cat((embedded_text_input, predicate_embeddings), dim=-1)
+        encoded_text, _ = self.lstms(embedded_text_input)
+        frame_embeddings = encoded_text[frame_indicator == 1]
         # outputs
         logits = self.tag_projection_layer(encoded_text)
         frame_logits = self.frame_projection_layer(frame_embeddings)
