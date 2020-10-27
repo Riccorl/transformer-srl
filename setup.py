@@ -5,7 +5,7 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
     name="transformer_srl",  # Replace with your own username
-    version="2.4rc9",
+    version="3.0rc1",
     author="Riccardo Orlando",
     author_email="orlandoricc@gmail.com",
     description="SRL Transformer model",
@@ -20,8 +20,8 @@ setuptools.setup(
         "Operating System :: OS Independent",
     ],
     install_requires=[
-        "allennlp==1.1",
-        "allennlp_models==1.1",
+        "allennlp==1.2.0rc1",
+        "allennlp_models==1.2.0rc1",
         "spacy>=2.3,<2.4"
     ],
     python_requires=">=3.6",

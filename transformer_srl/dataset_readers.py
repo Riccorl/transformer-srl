@@ -259,6 +259,7 @@ class SrlTransformersSpanReader(SrlReader):
         frame_indicator = SequenceLabelField(frame_indicator, text_field)
 
         sep_index = wordpieces.index(self.tokenizer.sep_token)
+
         metadata_dict["offsets"] = start_offsets
 
         fields: Dict[str, Field] = {

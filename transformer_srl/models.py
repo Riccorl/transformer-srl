@@ -6,6 +6,7 @@ import torch
 import torch.nn.functional as F
 from allennlp.data import TextFieldTensors, Vocabulary
 from allennlp.models.model import Model
+from allennlp.modules import Seq2SeqEncoder
 from allennlp.nn import InitializerApplicator, util
 from allennlp.nn.util import get_device_of, get_text_field_mask, sequence_cross_entropy_with_logits
 from allennlp.training.metrics.fbeta_measure import FBetaMeasure
@@ -17,7 +18,7 @@ from allennlp_models.structured_prediction.metrics.srl_eval_scorer import (
 from overrides import overrides
 from torch import nn
 from transformers import AutoModel
-from transformers.tokenization_auto import AutoTokenizer
+from transformers.tokenization_auto import AutoConfig
 
 from transformer_srl.utils import load_label_list, load_lemma_frame, load_role_frame
 
@@ -66,11 +67,8 @@ class TransformerSrlSpan(SrlBert):
         self.frame_role_dict = load_role_frame(FRAME_ROLE_PATH)
         self.restrict_frames = restrict_frames
         self.restrict_roles = restrict_roles
-        if isinstance(bert_model, str):
-            self.transformer = AutoModel.from_pretrained(bert_model)
-            self.tokenizer = AutoTokenizer.from_pretrained(bert_model)
-        else:
-            self.transformer = bert_model
+        config = AutoConfig.from_pretrained(bert_model, output_hidden_states=True)
+        self.transformer = AutoModel.from_pretrained(bert_model, config=config)
         self.frame_criterion = nn.CrossEntropyLoss()
         # add missing labels
         frame_list = load_label_list(FRAME_LIST_PATH)
@@ -84,10 +82,11 @@ class TransformerSrlSpan(SrlBert):
         else:
             self.span_metric = None
         self.f1_frame_metric = FBetaMeasure(average="micro")
-        self.tag_projection_layer = nn.Linear(self.transformer.config.hidden_size, self.num_classes)
-        self.frame_projection_layer = nn.Linear(
-            self.transformer.config.hidden_size, self.frame_num_classes
+        # self.tag_projection_layer = nn.Linear(config.hidden_size, self.num_classes)
+        self.tag_projection_layer = torch.nn.Sequential(
+            nn.Linear(config.hidden_size, 300), nn.ReLU(), nn.Linear(300, self.num_classes),
         )
+        self.frame_projection_layer = nn.Linear(config.hidden_size, self.frame_num_classes)
         self.embedding_dropout = nn.Dropout(p=embedding_dropout)
         self._label_smoothing = label_smoothing
         self.ignore_span_metric = ignore_span_metric
@@ -144,15 +143,13 @@ class TransformerSrlSpan(SrlBert):
         """
         mask = get_text_field_mask(tokens)
         input_ids = util.get_token_ids_from_text_field_tensors(tokens)
-        bert_embeddings, _ = self.transformer(
-            input_ids=input_ids,
-            # token_type_ids=verb_indicator,
-            attention_mask=mask,
-        )
+        embeddings = self.transformer(input_ids=input_ids, attention_mask=mask)
+        embeddings = embeddings[2][-4:]
+        embeddings = torch.stack(embeddings, dim=0).sum(dim=0)
         # get sizes
-        batch_size, _, _ = bert_embeddings.size()
+        batch_size, _, _ = embeddings.size()
         # extract embeddings
-        embedded_text_input = self.embedding_dropout(bert_embeddings)
+        embedded_text_input = self.embedding_dropout(embeddings)
         sentence_mask = (
             torch.arange(mask.shape[1]).unsqueeze(0).repeat(batch_size, 1).to(mask.device)
             < sentence_end.unsqueeze(1).repeat(1, mask.shape[1])
@@ -168,6 +165,7 @@ class TransformerSrlSpan(SrlBert):
 
         frame_embeddings = encoded_text[frame_indicator == 1]
         # outputs
+        print("encoded shape", encoded_text)
         logits = self.tag_projection_layer(encoded_text)
         frame_logits = self.frame_projection_layer(frame_embeddings)
 
