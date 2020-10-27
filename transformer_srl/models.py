@@ -165,7 +165,6 @@ class TransformerSrlSpan(SrlBert):
 
         frame_embeddings = encoded_text[frame_indicator == 1]
         # outputs
-        print("encoded shape", encoded_text)
         logits = self.tag_projection_layer(encoded_text)
         frame_logits = self.frame_projection_layer(frame_embeddings)
 
