@@ -258,7 +258,6 @@ class SrlTransformersSpanReader(SrlReader):
         verb_indicator = SequenceLabelField(new_verbs, text_field)
         frame_indicator = SequenceLabelField(frame_indicator, text_field)
 
-        sep_index = wordpieces.index(self.tokenizer.sep_token)
 
         metadata_dict["offsets"] = start_offsets
 
@@ -266,7 +265,6 @@ class SrlTransformersSpanReader(SrlReader):
             "tokens": text_field,
             "verb_indicator": verb_indicator,
             "frame_indicator": frame_indicator,
-            "sentence_end": ArrayField(np.array(sep_index + 1, dtype=np.int64), dtype=np.int64),
         }
 
         if all(x == 0 for x in verb_label):
