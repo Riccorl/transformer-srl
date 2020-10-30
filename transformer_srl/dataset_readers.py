@@ -207,6 +207,7 @@ class SrlTransformersSpanReader(SrlReader):
         ):
             tokens = [Token(t) for t in sentence.words]
             sentence_id = sentence.sentence_id
+            counter = sentence_id
             if sentence.srl_frames:
                 for (_, tags) in sentence.srl_frames:
                     verb_indicator = [1 if label[-2:] == "-V" else 0 for label in tags]

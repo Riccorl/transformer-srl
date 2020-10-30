@@ -7,7 +7,7 @@
     "data_loader": {
       "batch_sampler": {
         "type": "bucket",
-        "batch_size" : 32
+        "batch_size" : 16
       }
     },
 

@@ -1,13 +1,14 @@
 {
     "dataset_reader": {
-      "type": "transformer_srl_span",
-      "model_name": "mrm8488/bert-tiny-finetuned-squadv2",
+      "type": "transformer_srl_dependency",
+      "model_name": "xlm-roberta-base",
+      "format": "conll2009"
     },
 
     "data_loader": {
       "batch_sampler": {
         "type": "bucket",
-        "batch_size" : 32
+        "batch_size" : 8
       }
     },
 
@@ -15,9 +16,9 @@
     "validation_data_path": std.extVar("SRL_VALIDATION_DATA_PATH"),
 
     "model": {
-        "type": "transformer_srl_dependency",
+        "type": "transformer_srl_span",
         "embedding_dropout": 0.1,
-        "bert_model": "mrm8488/bert-tiny-finetuned-squadv2",
+        "bert_model": "xlm-roberta-base",
     },
 
     "trainer": {
@@ -40,6 +41,6 @@
         "grad_norm": 1.0,
         "num_epochs": 15,
         "validation_metric": "+f1_role",
-        "cuda_device": -1,
+        "cuda_device": 0,
     },
 }
