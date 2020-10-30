@@ -1,19 +1,21 @@
 import logging
 import pathlib
-from typing import Any, Dict, List, Tuple
+from collections import defaultdict
+from typing import Any, DefaultDict, Dict, List, Set, Tuple
 
-import numpy as np
 from allennlp.common.file_utils import cached_path
 from allennlp.data.dataset_readers.dataset_reader import DatasetReader
-from allennlp.data.fields import ArrayField, Field, MetadataField, SequenceLabelField, TextField
+from allennlp.data.dataset_readers.dataset_utils.span_utils import TypedSpan
+from allennlp.data.fields import Field, MetadataField, SequenceLabelField, TextField
 from allennlp.data.instance import Instance
 from allennlp.data.token_indexers import PretrainedTransformerIndexer, TokenIndexer
 from allennlp.data.tokenizers import Token
-from allennlp_models.common.ontonotes import Ontonotes
+from allennlp_models.common.ontonotes import Ontonotes, OntonotesSentence
 from allennlp_models.structured_prediction import SrlReader
 from conllu import parse_incr
+from nltk import Tree
 from overrides import overrides
-from transformers import AutoTokenizer, XLMRobertaTokenizer
+from transformers import AutoTokenizer
 
 logger = logging.getLogger(__name__)
 
@@ -195,7 +197,7 @@ class SrlTransformersSpanReader(SrlReader):
     def _read(self, file_path: str):
         # if `file_path` is a URL, redirect to the cache
         file_path = cached_path(file_path)
-        ontonotes_reader = Ontonotes()
+        ontonotes_reader = TransformersOntonotes()
         logger.info("Reading SRL instances from dataset files at: %s", file_path)
         if self._domain_identifier is not None:
             logger.info(
@@ -257,7 +259,6 @@ class SrlTransformersSpanReader(SrlReader):
         )
         verb_indicator = SequenceLabelField(new_verbs, text_field)
         frame_indicator = SequenceLabelField(frame_indicator, text_field)
-
 
         metadata_dict["offsets"] = start_offsets
 
@@ -519,3 +520,133 @@ class SrlUdpDatasetReader(SrlTransformersSpanReader):
 
         # Add O tags for cls and sep tokens.
         return ["O"] + new_tags + ["O"]
+
+
+class TransformersOntonotes(Ontonotes):
+    def _conll_rows_to_sentence(self, conll_rows: List[str]) -> OntonotesSentence:
+        document_id: str = None
+        sentence_id: int = None
+        # The words in the sentence.
+        sentence: List[str] = []
+        # The pos tags of the words in the sentence.
+        pos_tags: List[str] = []
+        # the pieces of the parse tree.
+        parse_pieces: List[str] = []
+        # The lemmatised form of the words in the sentence which
+        # have SRL or word sense information.
+        predicate_lemmas: List[str] = []
+        # The FrameNet ID of the predicate.
+        predicate_framenet_ids: List[str] = []
+        # The sense of the word, if available.
+        word_senses: List[float] = []
+        # The current speaker, if available.
+        speakers: List[str] = []
+
+        verbal_predicates: List[str] = []
+        span_labels: List[List[str]] = []
+        current_span_labels: List[str] = []
+
+        # Cluster id -> List of (start_index, end_index) spans.
+        clusters: DefaultDict[int, List[Tuple[int, int]]] = defaultdict(list)
+        # Cluster id -> List of start_indices which are open for this id.
+        coref_stacks: DefaultDict[int, List[int]] = defaultdict(list)
+
+        for index, row in enumerate(conll_rows):
+            conll_components = row.split()
+
+            document_id = conll_components[0]
+            sentence_id = conll_components[1]
+            word = conll_components[3]
+            pos_tag = conll_components[4]
+            parse_piece = conll_components[5]
+
+            # Replace brackets in text and pos tags
+            # with a different token for parse trees.
+            if pos_tag != "XX" and word != "XX":
+                if word == "(":
+                    parse_word = "-LRB-"
+                elif word == ")":
+                    parse_word = "-RRB-"
+                else:
+                    parse_word = word
+                if pos_tag == "(":
+                    pos_tag = "-LRB-"
+                if pos_tag == ")":
+                    pos_tag = "-RRB-"
+                (left_brackets, right_hand_side) = parse_piece.split("*")
+                # only keep ')' if there are nested brackets with nothing in them.
+                right_brackets = right_hand_side.count(")") * ")"
+                parse_piece = f"{left_brackets} ({pos_tag} {parse_word}) {right_brackets}"
+            else:
+                # There are some bad annotations in the CONLL data.
+                # They contain no information, so to make this explicit,
+                # we just set the parse piece to be None which will result
+                # in the overall parse tree being None.
+                parse_piece = None
+
+            lemmatised_word = conll_components[6]
+            framenet_id = conll_components[7]
+            word_sense = conll_components[8]
+            speaker = conll_components[9]
+
+            if not span_labels:
+                # If this is the first word in the sentence, create
+                # empty lists to collect the NER and SRL BIO labels.
+                # We can't do this upfront, because we don't know how many
+                # components we are collecting, as a sentence can have
+                # variable numbers of SRL frames.
+                span_labels = [[] for _ in conll_components[10:-1]]
+                # Create variables representing the current label for each label
+                # sequence we are collecting.
+                current_span_labels = [None for _ in conll_components[10:-1]]
+
+            self._process_span_annotations_for_word(
+                conll_components[10:-1], span_labels, current_span_labels
+            )
+
+            # If any annotation marks this word as a verb predicate,
+            # we need to record its index. This also has the side effect
+            # of ordering the verbal predicates by their location in the
+            # sentence, automatically aligning them with the annotations.
+            word_is_verbal_predicate = any("(V" in x for x in conll_components[11:-1])
+            if word_is_verbal_predicate:
+                verbal_predicates.append(word)
+
+            self._process_coref_span_annotations_for_word(
+                conll_components[-1], index, clusters, coref_stacks
+            )
+
+            sentence.append(word)
+            pos_tags.append(pos_tag)
+            parse_pieces.append(parse_piece)
+            predicate_lemmas.append(lemmatised_word if lemmatised_word != "-" else None)
+            predicate_framenet_ids.append(framenet_id if framenet_id != "-" else None)
+            word_senses.append(float(word_sense) if word_sense != "-" else None)
+            speakers.append(speaker if speaker != "-" else None)
+
+        named_entities = span_labels[0]
+        srl_frames = [
+            (predicate, labels) for predicate, labels in zip(verbal_predicates, span_labels[1:])
+        ]
+
+        if all(parse_pieces):
+            parse_tree = Tree.fromstring("".join(parse_pieces))
+        else:
+            parse_tree = None
+        coref_span_tuples: Set[TypedSpan] = {
+            (cluster_id, span) for cluster_id, span_list in clusters.items() for span in span_list
+        }
+        return OntonotesSentence(
+            document_id,
+            sentence_id,
+            sentence,
+            pos_tags,
+            parse_tree,
+            predicate_lemmas,
+            predicate_framenet_ids,
+            word_senses,
+            speakers,
+            named_entities,
+            srl_frames,
+            coref_span_tuples,
+        )
