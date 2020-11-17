@@ -1,10 +1,11 @@
+import enum
 from typing import List, Dict, Type
+from allennlp.data.tokenizers.token import Token
 
 import numpy
 from allennlp.common import plugins
 from allennlp.common.util import JsonDict, sanitize, group_by_count
 from allennlp.data import DatasetReader, Instance
-from allennlp.data.tokenizers.spacy_tokenizer import SpacyTokenizer
 from allennlp.models import Model
 from allennlp.models.archival import Archive, load_archive
 from allennlp.predictors.predictor import Predictor
@@ -25,6 +26,17 @@ class SrlTransformersPredictor(SemanticRoleLabelerPredictor):
         srl_string = SemanticRoleLabelerPredictor.make_srl_string(words, tags)
         srl_string = srl_string.replace("[V", "[" + frame)
         return srl_string
+
+    @overrides
+    def _sentence_to_srl_instances(self, json_dict: JsonDict) -> List[Instance]:
+        sentence = json_dict["sentence"]
+        if json_dict.get("verbs"):
+            text = sentence.split()
+            pos = ["VERB" if i == json_dict["verbs"] else "NOUN" for i, _ in enumerate(text)]
+            tokens = [Token(t, i, i + len(text), pos_=p) for i, (t, p) in enumerate(zip(text, pos))]
+        else:
+            tokens = self._tokenizer.tokenize(sentence)
+        return self.tokens_to_instances(tokens)
 
     @overrides
     def tokens_to_instances(self, tokens):
