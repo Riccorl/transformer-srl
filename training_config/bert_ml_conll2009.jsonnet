@@ -19,6 +19,7 @@
         "type": "transformer_srl_span",
         "embedding_dropout": 0.1,
         "bert_model": "bert-base-multilingual-cased",
+        "inventory": "propbank",
     },
 
     "trainer": {

@@ -1,6 +1,6 @@
 {
     "dataset_reader": {
-      "type": "transformer_srl_span",
+      "type": "transformer_srl_dependency",
       "model_name": "mrm8488/bert-tiny-finetuned-squadv2",
     },
 
@@ -17,7 +17,7 @@
     "model": {
         "type": "transformer_srl_dependency",
         "embedding_dropout": 0.1,
-        "bert_model": "mrm8488/bert-tiny-finetuned-squadv2",
+        "model_name": "mrm8488/bert-tiny-finetuned-squadv2",
     },
 
     "trainer": {

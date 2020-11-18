@@ -442,7 +442,7 @@ class SrlUdpDatasetReader(SrlTransformersSpanReader):
 
             for annotation in parse_incr(
                 conll_file,
-                fields=conllu_fields if self.format == "conllu" else conll2009_fields,
+                fields=conll2009_fields if self.format == "conll2009" else conllu_fields,
                 field_parsers={"roles": lambda line, i: line[i:]},
             ):
                 # CoNLLU annotations sometimes add back in words that have been elided
@@ -460,7 +460,7 @@ class SrlUdpDatasetReader(SrlTransformersSpanReader):
                     continue
                 frames = [x["frame"] for x in annotation]
                 # clean C-V tags (not needed yet)
-                frames = [f if f != "C-V" else "_" for f in frames]
+                frames = [f if f.isupper() else "_" for f in frames]
                 roles = [x["roles"] for x in annotation]
                 # transpose rolses, to have a list of roles per frame
                 roles = list(map(list, zip(*roles)))
