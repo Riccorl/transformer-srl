@@ -18,7 +18,6 @@ from allennlp_models.structured_prediction.metrics.srl_eval_scorer import (
 from overrides import overrides
 from torch import nn
 from transformers import AutoModel
-from transformers.tokenization_auto import AutoConfig
 
 from transformer_srl.utils import load_label_list, load_lemma_frame, load_role_frame
 
@@ -268,6 +267,8 @@ class TransformerSrlSpan(SrlBert):
     def _mask_args(self, output_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         class_probs = output_dict["class_probabilities"]
         device = get_device_of(class_probs)
+        # torch doesn't like -1 as cpu device
+        device = torch.device("cuda" if device >= 0 else "cpu")
         lemmas = output_dict["lemma"]
         frames = output_dict["frame_tags"]
         candidate_mask = torch.ones_like(class_probs, dtype=torch.bool).to(device)

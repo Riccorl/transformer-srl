@@ -207,19 +207,22 @@ class SrlTransformersSpanReader(SrlReader):
         for sentence in self._ontonotes_subset(
             ontonotes_reader, file_path, self._domain_identifier
         ):
-            tokens = [Token(t) for t in sentence.words]
-            sentence_id = sentence.sentence_id
-            if sentence.srl_frames:
-                for (_, tags) in sentence.srl_frames:
-                    verb_indicator = [1 if label[-2:] == "-V" else 0 for label in tags]
-                    frames = self._get_predicate_labels(sentence, verb_indicator)
-                    lemmas = [
-                        f for f, v in zip(sentence.predicate_lemmas, verb_indicator) if v == 1
-                    ]
-                    if not all(v == 0 for v in verb_indicator):
-                        yield self.text_to_instance(
-                            tokens, verb_indicator, frames, lemmas, tags, sentence_id
-                        )
+            try:
+                tokens = [Token(t) for t in sentence.words]
+                sentence_id = sentence.sentence_id
+                if sentence.srl_frames:
+                    for (_, tags) in sentence.srl_frames:
+                        verb_indicator = [1 if label[-2:] == "-V" else 0 for label in tags]
+                        frames = self._get_predicate_labels(sentence, verb_indicator)
+                        lemmas = [
+                            f for f, v in zip(sentence.predicate_lemmas, verb_indicator) if v == 1
+                        ]
+                        if not all(v == 0 for v in verb_indicator):
+                            yield self.text_to_instance(
+                                tokens, verb_indicator, frames, lemmas, tags, sentence_id
+                            )
+            except:
+                print(sentence.sentence_id)
 
     def text_to_instance(  # type: ignore
         self,
