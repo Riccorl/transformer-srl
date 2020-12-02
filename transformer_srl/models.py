@@ -21,9 +21,10 @@ from transformers import AutoModel
 
 from transformer_srl.utils import load_label_list, load_lemma_frame, load_role_frame
 
-LEMMA_FRAME_PATH = pathlib.Path(__file__).resolve().parent / "resources" / "lemma2frame.csv"
+LEMMA_FRAME_PATH = pathlib.Path(__file__).resolve().parent / "resources" / "lemma2va_ml.tsv"
 FRAME_ROLE_PATH = pathlib.Path(__file__).resolve().parent / "resources" / "frame2role.csv"
 FRAME_LIST_PATH = pathlib.Path(__file__).resolve().parent / "resources" / "framelist.txt"
+ROLE_LIST_PATH = pathlib.Path(__file__).resolve().parent / "resources" / "rolelist.txt"
 
 
 @Model.register("transformer_srl_span")
@@ -65,14 +66,17 @@ class TransformerSrlSpan(SrlBert):
         Model.__init__(self, vocab, **kwargs)
         self.lemma_frame_dict = load_lemma_frame(LEMMA_FRAME_PATH)
         self.frame_role_dict = load_role_frame(FRAME_ROLE_PATH)
-        self.restrict_frames = restrict_frames
-        self.restrict_roles = restrict_roles
+        self.restrict_frames = True
+        self.restrict_roles = True
         self.transformer = AutoModel.from_pretrained(bert_model)
         self.frame_criterion = nn.CrossEntropyLoss()
         if inventory == "verbatlas":
-            # add missing labels
+            # add missing frame labels
             frame_list = load_label_list(FRAME_LIST_PATH)
             self.vocab.add_tokens_to_namespace(frame_list, "frames_labels")
+            # add missing role labels
+            role_list = load_label_list(ROLE_LIST_PATH)
+            self.vocab.add_tokens_to_namespace(role_list, "labels")
         self.num_classes = self.vocab.get_vocab_size("labels")
         self.frame_num_classes = self.vocab.get_vocab_size("frames_labels")
         if srl_eval_path is not None:

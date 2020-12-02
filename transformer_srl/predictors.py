@@ -30,7 +30,7 @@ class SrlTransformersPredictor(SemanticRoleLabelerPredictor):
     @overrides
     def _sentence_to_srl_instances(self, json_dict: JsonDict) -> List[Instance]:
         sentence = json_dict["sentence"]
-        if json_dict.get("verbs"):
+        if "verbs" in json_dict.keys():
             text = sentence.split()
             pos = ["VERB" if i == json_dict["verbs"] else "NOUN" for i, _ in enumerate(text)]
             tokens = [Token(t, i, i + len(text), pos_=p) for i, (t, p) in enumerate(zip(text, pos))]
