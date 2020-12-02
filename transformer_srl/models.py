@@ -22,7 +22,7 @@ from transformers import AutoModel
 from transformer_srl.utils import load_label_list, load_lemma_frame, load_role_frame
 
 LEMMA_FRAME_PATH = pathlib.Path(__file__).resolve().parent / "resources" / "lemma2va_ml.tsv"
-FRAME_ROLE_PATH = pathlib.Path(__file__).resolve().parent / "resources" / "frame2role.csv"
+FRAME_ROLE_PATH = pathlib.Path(__file__).resolve().parent / "resources" / "frame2role_ml.csv"
 FRAME_LIST_PATH = pathlib.Path(__file__).resolve().parent / "resources" / "framelist.txt"
 ROLE_LIST_PATH = pathlib.Path(__file__).resolve().parent / "resources" / "rolelist.txt"
 
@@ -66,8 +66,8 @@ class TransformerSrlSpan(SrlBert):
         Model.__init__(self, vocab, **kwargs)
         self.lemma_frame_dict = load_lemma_frame(LEMMA_FRAME_PATH)
         self.frame_role_dict = load_role_frame(FRAME_ROLE_PATH)
-        self.restrict_frames = True
-        self.restrict_roles = True
+        self.restrict_frames = restrict_frames
+        self.restrict_roles = restrict_roles
         self.transformer = AutoModel.from_pretrained(bert_model)
         self.frame_criterion = nn.CrossEntropyLoss()
         if inventory == "verbatlas":
