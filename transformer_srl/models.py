@@ -22,9 +22,10 @@ from transformers.tokenization_auto import AutoConfig
 
 from transformer_srl.utils import load_label_list, load_lemma_frame, load_role_frame
 
-LEMMA_FRAME_PATH = pathlib.Path(__file__).resolve().parent / "resources" / "lemma2frame.csv"
-FRAME_ROLE_PATH = pathlib.Path(__file__).resolve().parent / "resources" / "frame2role.csv"
+LEMMA_FRAME_PATH = pathlib.Path(__file__).resolve().parent / "resources" / "lemma2va_ml.tsv"
+FRAME_ROLE_PATH = pathlib.Path(__file__).resolve().parent / "resources" / "frame2role_ml.tsv"
 FRAME_LIST_PATH = pathlib.Path(__file__).resolve().parent / "resources" / "framelist.txt"
+ROLE_LIST_PATH = pathlib.Path(__file__).resolve().parent / "resources" / "rolelist.txt"
 
 
 @Model.register("transformer_srl_span")
@@ -60,6 +61,7 @@ class TransformerSrlSpan(SrlBert):
         srl_eval_path: str = DEFAULT_SRL_EVAL_PATH,
         restrict_frames: bool = False,
         restrict_roles: bool = False,
+        inventory: str = "verbatlas",
         **kwargs,
     ) -> None:
         # bypass SrlBert constructor
@@ -71,9 +73,13 @@ class TransformerSrlSpan(SrlBert):
         config = AutoConfig.from_pretrained(bert_model, output_hidden_states=True)
         self.transformer = AutoModel.from_pretrained(bert_model, config=config)
         self.frame_criterion = nn.CrossEntropyLoss()
-        # add missing labels
-        frame_list = load_label_list(FRAME_LIST_PATH)
-        self.vocab.add_tokens_to_namespace(frame_list, "frames_labels")
+        if inventory == "verbatlas":
+            # add missing frame labels
+            frame_list = load_label_list(FRAME_LIST_PATH)
+            self.vocab.add_tokens_to_namespace(frame_list, "frames_labels")
+            # add missing role labels
+            role_list = load_label_list(ROLE_LIST_PATH)
+            self.vocab.add_tokens_to_namespace(role_list, "labels")
         self.num_classes = self.vocab.get_vocab_size("labels")
         self.frame_num_classes = self.vocab.get_vocab_size("frames_labels")
         if srl_eval_path is not None:
@@ -297,6 +303,7 @@ class TransformerSrlSpan(SrlBert):
     def _mask_args(self, output_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         class_probs = output_dict["class_probabilities"]
         device = get_device_of(class_probs)
+        device = torch.device("cuda" if device >= 0 else "cpu")
         lemmas = output_dict["lemma"]
         frames = output_dict["frame_tags"]
         candidate_mask = torch.ones_like(class_probs, dtype=torch.bool).to(device)
