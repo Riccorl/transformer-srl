@@ -1,6 +1,7 @@
+from collections import defaultdict
 import logging
 import pathlib
-from typing import Any, Dict, List, Tuple
+from typing import Any, DefaultDict, Dict, List, Set, Tuple
 
 import numpy as np
 from allennlp.common.file_utils import cached_path
@@ -9,11 +10,13 @@ from allennlp.data.fields import ArrayField, Field, MetadataField, SequenceLabel
 from allennlp.data.instance import Instance
 from allennlp.data.token_indexers import PretrainedTransformerIndexer, TokenIndexer
 from allennlp.data.tokenizers import Token
-from allennlp_models.common.ontonotes import Ontonotes
+from allennlp_models.common.ontonotes import Ontonotes, OntonotesSentence
 from allennlp_models.structured_prediction import SrlReader
 from conllu import parse_incr
 from overrides import overrides
-from transformers import AutoTokenizer, XLMRobertaTokenizer
+from torch._C import TreeView
+from transformers import AutoTokenizer
+from allennlp.data.dataset_readers.dataset_utils.span_utils import TypedSpan
 
 logger = logging.getLogger(__name__)
 
@@ -467,7 +470,10 @@ class SrlUdpDatasetReader(SrlTransformersSpanReader):
                 # transpose rolses, to have a list of roles per frame
                 roles = list(map(list, zip(*roles)))
                 current_frame = 0
-                for i, frame, in enumerate(frames):
+                for (
+                    i,
+                    frame,
+                ) in enumerate(frames):
                     if frame != "_":
                         verb_indicator = [0] * len(frames)
                         verb_indicator[i] = 1
@@ -632,7 +638,7 @@ class TransformersOntonotes(Ontonotes):
         ]
 
         if all(parse_pieces):
-            parse_tree = Tree.fromstring("".join(parse_pieces))
+            parse_tree = TreeView.fromstring("".join(parse_pieces))
         else:
             parse_tree = None
         coref_span_tuples: Set[TypedSpan] = {
