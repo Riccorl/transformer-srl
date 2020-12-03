@@ -14,7 +14,7 @@ from allennlp_models.common.ontonotes import Ontonotes, OntonotesSentence
 from allennlp_models.structured_prediction import SrlReader
 from conllu import parse_incr
 from overrides import overrides
-from torch._C import TreeView
+from nltk import Tree
 from transformers import AutoTokenizer
 from allennlp.data.dataset_readers.dataset_utils.span_utils import TypedSpan
 
@@ -638,7 +638,7 @@ class TransformersOntonotes(Ontonotes):
         ]
 
         if all(parse_pieces):
-            parse_tree = TreeView.fromstring("".join(parse_pieces))
+            parse_tree = Tree.fromstring("".join(parse_pieces))
         else:
             parse_tree = None
         coref_span_tuples: Set[TypedSpan] = {
