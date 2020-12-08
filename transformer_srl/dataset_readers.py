@@ -1,26 +1,34 @@
-from collections import defaultdict
 import logging
 import pathlib
+from collections import defaultdict
 from typing import Any, DefaultDict, Dict, List, Set, Tuple
 
 import numpy as np
 from allennlp.common.file_utils import cached_path
 from allennlp.data.dataset_readers.dataset_reader import DatasetReader
-from allennlp.data.fields import ArrayField, Field, MetadataField, SequenceLabelField, TextField
+from allennlp.data.dataset_readers.dataset_utils.span_utils import TypedSpan
+from allennlp.data.fields import (
+    ArrayField,
+    Field,
+    MetadataField,
+    SequenceLabelField,
+    TextField,
+)
 from allennlp.data.instance import Instance
 from allennlp.data.token_indexers import PretrainedTransformerIndexer, TokenIndexer
 from allennlp.data.tokenizers import Token
 from allennlp_models.common.ontonotes import Ontonotes, OntonotesSentence
 from allennlp_models.structured_prediction import SrlReader
 from conllu import parse_incr
-from overrides import overrides
 from nltk import Tree
-from transformers import AutoTokenizer
-from allennlp.data.dataset_readers.dataset_utils.span_utils import TypedSpan
+from overrides import overrides
+from transformers import AutoTokenizer, XLMRobertaTokenizer
 
 logger = logging.getLogger(__name__)
 
-FRAME_LIST_PATH = pathlib.Path(__file__).resolve().parent / "resources" / "framelist.txt"
+FRAME_LIST_PATH = (
+    pathlib.Path(__file__).resolve().parent / "resources" / "framelist.txt"
+)
 
 
 def _convert_verb_indices_to_wordpiece_indices(
@@ -30,18 +38,13 @@ def _convert_verb_indices_to_wordpiece_indices(
     Converts binary verb indicators to account for a wordpiece tokenizer,
     extending/modifying BIO tags where appropriate to deal with words which
     are split into multiple wordpieces by the tokenizer.
-
     This is only used if you pass a `model_name` to the dataset reader below.
-
     # Parameters
-
     verb_indices : `List[int]`
         The binary verb indicators, 0 for not a verb, 1 for verb.
     offsets : `List[int]`
         The wordpiece offsets.
-
     # Returns
-
     The new verb indices.
     """
     j = 0
@@ -100,16 +103,13 @@ class SrlTransformersSpanReader(SrlReader):
     This DatasetReader is designed to read in the English OntoNotes v5.0 data
     for semantic role labelling. It returns a dataset of instances with the
     following fields:
-
     tokens : `TextField`
         The tokens in the sentence.
     verb_indicator : `SequenceLabelField`
         A sequence of binary indicators for whether the word is the verb for this frame.
     tags : `SequenceLabelField`
         A sequence of Propbank tags for the given verb in a BIO format.
-
     # Parameters
-
     token_indexers : `Dict[str, TokenIndexer]`, optional
         We similarly use this for both the premise and the hypothesis.  See :class:`TokenIndexer`.
         Default is `{"tokens": PretrainedTransformerIndexer()}`.
@@ -121,9 +121,7 @@ class SrlTransformersSpanReader(SrlReader):
         assume you want to use BERT throughout; we will use the bert tokenizer,
         and will expand your tags and verb indicators accordingly. If not,
         the tokens will be indexed as normal with the token_indexers.
-
     # Returns
-
     A `Dataset` of `Instances` for Semantic Role Labelling.
     """
 
@@ -148,10 +146,8 @@ class SrlTransformersSpanReader(SrlReader):
         """
         Convert a list of tokens to wordpiece tokens and offsets, as well as adding
         BERT CLS and SEP tokens to the begining and end of the sentence.
-
         A slight oddity with this function is that it also returns the wordpiece offsets
         corresponding to the _start_ of words as well as the end.
-
         We need both of these offsets (or at least, it's easiest to use both), because we need
         to convert the labels to tags using the end_offsets. However, when we are decoding a
         BIO sequence inside the SRL model itself, it's important that we use the start_offsets,
@@ -159,16 +155,12 @@ class SrlTransformersSpanReader(SrlReader):
         wordpieces (this happens in the case that a word is split into multiple word pieces,
         and then we take the last tag of the word, which might correspond to, e.g, I-V, which
         would not be allowed as it is not preceeded by a B tag).
-
         For example:
-
         `annotate` will be bert tokenized as ["anno", "##tate"].
         If this is tagged as [B-V, I-V] as it should be, we need to select the
         _first_ wordpiece label to be the label for the token, because otherwise
         we may end up with invalid tag sequences (we cannot start a new tag with an I).
-
         # Returns
-
         wordpieces : `List[str]`
             The BERT wordpieces from the words in the sentence.
         end_offsets : `List[int]`
@@ -191,7 +183,9 @@ class SrlTransformersSpanReader(SrlReader):
             end_offsets.append(cumulative)
             word_piece_tokens.extend(word_pieces)
 
-        wordpieces = [self.tokenizer.cls_token] + word_piece_tokens + [self.tokenizer.sep_token]
+        wordpieces = (
+            [self.tokenizer.cls_token] + word_piece_tokens + [self.tokenizer.sep_token]
+        )
         return wordpieces, end_offsets, start_offsets
 
     @overrides
@@ -210,13 +204,14 @@ class SrlTransformersSpanReader(SrlReader):
         ):
             tokens = [Token(t) for t in sentence.words]
             sentence_id = sentence.sentence_id
-            counter = sentence_id
             if sentence.srl_frames:
                 for (_, tags) in sentence.srl_frames:
                     verb_indicator = [1 if label[-2:] == "-V" else 0 for label in tags]
                     frames = self._get_predicate_labels(sentence, verb_indicator)
                     lemmas = [
-                        f for f, v in zip(sentence.predicate_lemmas, verb_indicator) if v == 1
+                        f
+                        for f, v in zip(sentence.predicate_lemmas, verb_indicator)
+                        if v == 1
                     ]
                     if not all(v == 0 for v in verb_indicator):
                         yield self.text_to_instance(
@@ -243,20 +238,25 @@ class SrlTransformersSpanReader(SrlReader):
             [t.text for t in tokens]
         )
         new_verbs = _convert_verb_indices_to_wordpiece_indices(verb_label, offsets)
-        frame_indicator = _convert_frames_indices_to_wordpiece_indices(verb_label, offsets, True)
+        frame_indicator = _convert_frames_indices_to_wordpiece_indices(
+            verb_label, offsets, True
+        )
 
         # add verb as information to the model
-        # verb_tokens = [token for token, v in zip(wordpieces, new_verbs) if v == 1]
-        # verb_tokens = verb_tokens + [self.tokenizer.sep_token]
-        # if isinstance(self.tokenizer, XLMRobertaTokenizer):
-        #     verb_tokens = [self.tokenizer.sep_token] + verb_tokens
-        # wordpieces += verb_tokens
-        # new_verbs += [0 for _ in range(len(verb_tokens))]
-        # frame_indicator += [0 for _ in range(len(verb_tokens))]
+        verb_tokens = [token for token, v in zip(wordpieces, new_verbs) if v == 1]
+        verb_tokens = verb_tokens + [self.tokenizer.sep_token]
+        if isinstance(self.tokenizer, XLMRobertaTokenizer):
+            verb_tokens = [self.tokenizer.sep_token] + verb_tokens
+        wordpieces += verb_tokens
+        new_verbs += [0 for _ in range(len(verb_tokens))]
+        frame_indicator += [0 for _ in range(len(verb_tokens))]
         # In order to override the indexing mechanism, we need to set the `text_id`
         # attribute directly. This causes the indexing to use this id.
         text_field = TextField(
-            [Token(t, text_id=self.tokenizer.convert_tokens_to_ids(t)) for t in wordpieces],
+            [
+                Token(t, text_id=self.tokenizer.convert_tokens_to_ids(t))
+                for t in wordpieces
+            ],
             token_indexers=self._token_indexers,
         )
         verb_indicator = SequenceLabelField(new_verbs, text_field)
@@ -270,7 +270,9 @@ class SrlTransformersSpanReader(SrlReader):
             "tokens": text_field,
             "verb_indicator": verb_indicator,
             "frame_indicator": frame_indicator,
-            "sentence_end": ArrayField(np.array(sep_index + 1, dtype=np.int64), dtype=np.int64),
+            "sentence_end": ArrayField(
+                np.array(sep_index + 1, dtype=np.int64), dtype=np.int64
+            ),
         }
 
         if all(x == 0 for x in verb_label):
@@ -304,23 +306,20 @@ class SrlTransformersSpanReader(SrlReader):
         fields["metadata"] = MetadataField(metadata_dict)
         return Instance(fields)
 
-    def _convert_tags_to_wordpiece_tags(self, tags: List[str], offsets: List[int]) -> List[str]:
+    def _convert_tags_to_wordpiece_tags(
+        self, tags: List[str], offsets: List[int]
+    ) -> List[str]:
         """
         Converts a series of BIO tags to account for a wordpiece tokenizer,
         extending/modifying BIO tags where appropriate to deal with words which
         are split into multiple wordpieces by the tokenizer.
-
         This is only used if you pass a `model_name` to the dataset reader below.
-
         # Parameters
-
         tags : `List[str]`
             The BIO formatted tags to convert to BIO tags for wordpieces
         offsets : `List[int]`
             The wordpiece offsets.
-
         # Returns
-
         The new BIO tags.
         """
         new_tags = []
@@ -353,7 +352,9 @@ class SrlTransformersSpanReader(SrlReader):
         for i, v in enumerate(verb_indicator):
             if v == 1:
                 label = (
-                    "{}.{}".format(sentence.predicate_lemmas[i], sentence.predicate_framenet_ids[i])
+                    "{}.{}".format(
+                        sentence.predicate_lemmas[i], sentence.predicate_framenet_ids[i]
+                    )
                     if sentence.predicate_framenet_ids[i].isdigit()
                     else sentence.predicate_framenet_ids[i]
                 )
@@ -479,7 +480,9 @@ class SrlUdpDatasetReader(SrlTransformersSpanReader):
                         verb_indicator[i] = 1
                         frame_labels = ["O"] * len(frames)
                         frame_labels[i] = frame
-                        role_labels = ["B-" + r if r != "_" else "O" for r in roles[current_frame]]
+                        role_labels = [
+                            "B-" + r if r != "_" else "O" for r in roles[current_frame]
+                        ]
                         # add V tag to the verb role
                         role_labels[i] = "B-V"
                         lemma = lemmas[i]
@@ -488,7 +491,9 @@ class SrlUdpDatasetReader(SrlTransformersSpanReader):
                             words, verb_indicator, frame_labels, lemma, role_labels
                         )
 
-    def _convert_tags_to_wordpiece_tags(self, tags: List[str], offsets: List[int]) -> List[str]:
+    def _convert_tags_to_wordpiece_tags(
+        self, tags: List[str], offsets: List[int]
+    ) -> List[str]:
         """
         Converts a series of BIO tags to account for a wordpiece tokenizer,
         extending/modifying BIO tags where appropriate to deal with words which
@@ -584,7 +589,9 @@ class TransformersOntonotes(Ontonotes):
                 (left_brackets, right_hand_side) = parse_piece.split("*")
                 # only keep ')' if there are nested brackets with nothing in them.
                 right_brackets = right_hand_side.count(")") * ")"
-                parse_piece = f"{left_brackets} ({pos_tag} {parse_word}) {right_brackets}"
+                parse_piece = (
+                    f"{left_brackets} ({pos_tag} {parse_word}) {right_brackets}"
+                )
             else:
                 # There are some bad annotations in the CONLL data.
                 # They contain no information, so to make this explicit,
@@ -634,7 +641,8 @@ class TransformersOntonotes(Ontonotes):
 
         named_entities = span_labels[0]
         srl_frames = [
-            (predicate, labels) for predicate, labels in zip(verbal_predicates, span_labels[1:])
+            (predicate, labels)
+            for predicate, labels in zip(verbal_predicates, span_labels[1:])
         ]
 
         if all(parse_pieces):
@@ -642,7 +650,9 @@ class TransformersOntonotes(Ontonotes):
         else:
             parse_tree = None
         coref_span_tuples: Set[TypedSpan] = {
-            (cluster_id, span) for cluster_id, span_list in clusters.items() for span in span_list
+            (cluster_id, span)
+            for cluster_id, span_list in clusters.items()
+            for span in span_list
         }
         return OntonotesSentence(
             document_id,
