@@ -12,11 +12,16 @@ from allennlp_models.structured_prediction import SemanticRoleLabelerPredictor
 from overrides import overrides
 from spacy.tokens import Doc
 
+from allennlp.data.tokenizers.token import Token
+
 
 @Predictor.register("transformer_srl")
 class SrlTransformersPredictor(SemanticRoleLabelerPredictor):
     def __init__(
-        self, model: Model, dataset_reader: DatasetReader, language: str = "en_core_web_sm",
+        self,
+        model: Model,
+        dataset_reader: DatasetReader,
+        language: str = "en_core_web_sm",
     ) -> None:
         super().__init__(model, dataset_reader, language)
 
@@ -25,6 +30,25 @@ class SrlTransformersPredictor(SemanticRoleLabelerPredictor):
         srl_string = SemanticRoleLabelerPredictor.make_srl_string(words, tags)
         srl_string = srl_string.replace("[V", "[" + frame)
         return srl_string
+
+    @overrides
+    def _sentence_to_srl_instances(self, json_dict: JsonDict) -> List[Instance]:
+        sentence = json_dict["sentence"]
+        lemmas = json_dict["lemmas"]
+        if "verbs" in json_dict.keys():
+            text = sentence.split()
+            pos = [
+                "VERB" if i == json_dict["verbs"] else "NOUN"
+                for i, _ in enumerate(text)
+            ]
+            tokens = [
+                Token(t, i, i + len(text), pos_=p)
+                for i, (t, p) in enumerate(zip(text, pos))
+            ]
+            tokens[json_dict["verbs"]].lemma_ = lemmas[0]
+        else:
+            tokens = self._tokenizer.tokenize(sentence)
+        return self.tokens_to_instances(tokens)
 
     @overrides
     def tokens_to_instances(self, tokens):
@@ -47,7 +71,9 @@ class SrlTransformersPredictor(SemanticRoleLabelerPredictor):
         # that here by taking the batch size which we use to be the number of sentences
         # we are given.
         batch_size = len(inputs)
-        instances_per_sentence = [self._sentence_to_srl_instances(json) for json in inputs]
+        instances_per_sentence = [
+            self._sentence_to_srl_instances(json) for json in inputs
+        ]
 
         flattened_instances = [
             instance
@@ -57,7 +83,10 @@ class SrlTransformersPredictor(SemanticRoleLabelerPredictor):
 
         if not flattened_instances:
             return sanitize(
-                [{"verbs": [], "words": self._tokenizer.tokenize(x["sentence"])} for x in inputs]
+                [
+                    {"verbs": [], "words": self._tokenizer.tokenize(x["sentence"])}
+                    for x in inputs
+                ]
             )
 
         # Make the instances into batches and check the last batch for
@@ -81,7 +110,9 @@ class SrlTransformersPredictor(SemanticRoleLabelerPredictor):
                 # We didn't run any predictions for sentences with no verbs,
                 # so we don't have a way to extract the original sentence.
                 # Here we just tokenize the input again.
-                original_text = self._tokenizer.tokenize(inputs[sentence_index]["sentence"])
+                original_text = self._tokenizer.tokenize(
+                    inputs[sentence_index]["sentence"]
+                )
                 return_dicts[sentence_index]["words"] = original_text
                 continue
 
@@ -97,6 +128,7 @@ class SrlTransformersPredictor(SemanticRoleLabelerPredictor):
                     "description": description,
                     "tags": tags,
                     "frame": frame,
+                    "frame_index": list(tags).index("B-V"),
                     "frame_scores": output["frame_scores"],
                     "lemma": output["lemma"],
                 }
@@ -118,6 +150,7 @@ class SrlTransformersPredictor(SemanticRoleLabelerPredictor):
                 "description": description,
                 "tags": tags,
                 "frame": frame,
+                "frame_index": list(tags).index("B-V"),
                 "frame_score": output["frame_scores"],
                 "lemma": output["lemma"],
             }
@@ -168,11 +201,16 @@ class SrlTransformersPredictor(SemanticRoleLabelerPredictor):
             model_type = config.get("model").get("type")
             model_class, _ = Model.resolve_class_name(model_type)
             predictor_name = model_class.default_predictor
-        predictor_class: Type[Predictor] = Predictor.by_name(  # type: ignore
-            predictor_name
-        ) if predictor_name is not None else cls
+        predictor_class: Type[Predictor] = (
+            Predictor.by_name(predictor_name)  # type: ignore
+            if predictor_name is not None
+            else cls
+        )
 
-        if dataset_reader_to_load == "validation" and "validation_dataset_reader" in config:
+        if (
+            dataset_reader_to_load == "validation"
+            and "validation_dataset_reader" in config
+        ):
             dataset_reader_params = config["validation_dataset_reader"]
         else:
             dataset_reader_params = config["dataset_reader"]
