@@ -1,14 +1,12 @@
 import pathlib
 from typing import Any, Dict, List, Union
 
-import numpy as np
 import torch
 import torch.nn.functional as F
 from allennlp.data import TextFieldTensors, Vocabulary
 from allennlp.models.model import Model
-from allennlp.modules import Seq2SeqEncoder
 from allennlp.nn import InitializerApplicator, util
-from allennlp.nn.util import get_device_of, get_text_field_mask, sequence_cross_entropy_with_logits
+from allennlp.nn.util import get_text_field_mask, sequence_cross_entropy_with_logits
 from allennlp.training.metrics.fbeta_measure import FBetaMeasure
 from allennlp_models.structured_prediction import SrlBert
 from allennlp_models.structured_prediction.metrics.srl_eval_scorer import (
@@ -19,10 +17,8 @@ from overrides import overrides
 from torch import nn
 from transformers import AutoModel
 
-from transformer_srl.utils import load_label_list, load_lemma_frame, load_role_frame
+from transformer_srl.utils import load_label_list
 
-LEMMA_FRAME_PATH = pathlib.Path(__file__).resolve().parent / "resources" / "lemma2va_ml.tsv"
-FRAME_ROLE_PATH = pathlib.Path(__file__).resolve().parent / "resources" / "frame2role_ml.tsv"
 FRAME_LIST_PATH = pathlib.Path(__file__).resolve().parent / "resources" / "framelist.txt"
 ROLE_LIST_PATH = pathlib.Path(__file__).resolve().parent / "resources" / "rolelist.txt"
 
@@ -57,17 +53,11 @@ class TransformerSrlSpan(SrlBert):
         label_smoothing: float = None,
         ignore_span_metric: bool = False,
         srl_eval_path: str = DEFAULT_SRL_EVAL_PATH,
-        restrict_frames: bool = False,
-        restrict_roles: bool = False,
         inventory: str = "verbatlas",
         **kwargs,
     ) -> None:
         # bypass SrlBert constructor
         Model.__init__(self, vocab, **kwargs)
-        self.lemma_frame_dict = load_lemma_frame(LEMMA_FRAME_PATH)
-        self.frame_role_dict = load_role_frame(FRAME_ROLE_PATH)
-        self.restrict_frames = restrict_frames
-        self.restrict_roles = restrict_roles
         self.transformer = AutoModel.from_pretrained(bert_model)
         self.frame_criterion = nn.CrossEntropyLoss()
         if inventory == "verbatlas":
@@ -146,7 +136,10 @@ class TransformerSrlSpan(SrlBert):
         mask = get_text_field_mask(tokens)
         input_ids = util.get_token_ids_from_text_field_tensors(tokens)
         bert_embeddings, _ = self.transformer(
-            input_ids=input_ids, token_type_ids=verb_indicator, attention_mask=mask,
+            input_ids=input_ids,
+            token_type_ids=verb_indicator,
+            attention_mask=mask,
+            return_dict=False,
         )
         # extract embeddings
         embedded_text_input = self.embedding_dropout(bert_embeddings)
@@ -224,32 +217,7 @@ class TransformerSrlSpan(SrlBert):
     def decode_frames(self, output_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         # frame prediction
         frame_probabilities = output_dict["frame_probabilities"]
-        if self.restrict_frames:
-            frame_probabilities = frame_probabilities.cpu().data.numpy()
-            lemmas = output_dict["lemma"]
-            candidate_labels = [self.lemma_frame_dict.get(l, []) for l in lemmas]
-            # clear candidates from unknowns
-            label_set = set(k for k in self._get_label_tokens("frames_labels"))
-            candidate_labels_ids = [
-                [
-                    self.vocab.get_token_index(l, namespace="frames_labels")
-                    for l in cl
-                    if l in label_set
-                ]
-                for cl in candidate_labels
-            ]
-
-            frame_predictions = []
-            for cl, fp in zip(candidate_labels_ids, frame_probabilities):
-                # restrict candidates from verbatlas inventory
-                fp_candidates = np.take(fp, cl)
-                if fp_candidates.size > 0:
-                    frame_predictions.append(cl[fp_candidates.argmax(axis=-1)])
-                else:
-                    frame_predictions.append(fp.argmax(axis=-1))
-        else:
-            frame_predictions = frame_probabilities.argmax(dim=-1).cpu().data.numpy()
-
+        frame_predictions = frame_probabilities.argmax(dim=-1).cpu().data.numpy()
         output_dict["frame_tags"] = [
             self.vocab.get_token_from_index(f, namespace="frames_labels") for f in frame_predictions
         ]
@@ -263,31 +231,7 @@ class TransformerSrlSpan(SrlBert):
         self, output_dict: Dict[str, torch.Tensor]
     ) -> Dict[str, torch.Tensor]:
         output_dict = self.decode_frames(output_dict)
-        if self.restrict_roles:
-            output_dict = self._mask_args(output_dict)
         output_dict = super().make_output_human_readable(output_dict)
-        return output_dict
-
-    def _mask_args(self, output_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
-        class_probs = output_dict["class_probabilities"]
-        device = get_device_of(class_probs)
-        # torch doesn't like -1 as cpu device
-        device = torch.device("cuda" if device >= 0 else "cpu")
-        lemmas = output_dict["lemma"]
-        frames = output_dict["frame_tags"]
-        candidate_mask = torch.ones_like(class_probs, dtype=torch.bool).to(device)
-        for i, (l, f) in enumerate(zip(lemmas, frames)):
-            candidates = self.frame_role_dict.get((l, f), [])
-            if candidates:
-                canidate_ids = [
-                    self.vocab.get_token_index(r, namespace="labels") for r in candidates
-                ]
-                canidate_ids = torch.tensor(canidate_ids).to(device)
-                canidate_ids = canidate_ids.repeat(candidate_mask.shape[1], 1)
-                candidate_mask[i].scatter_(1, canidate_ids, False)
-            else:
-                candidate_mask[i].fill_(False)
-        class_probs.masked_fill_(candidate_mask, 0)
         return output_dict
 
     @overrides
@@ -303,13 +247,9 @@ class TransformerSrlSpan(SrlBert):
             # This can be a lot of metrics, as there are 3 per class.
             # we only really care about the overall metrics, so we filter for them here.
             metric_dict_filtered = {
-                x.split("-")[0] + "_role": y
-                for x, y in metric_dict.items()
-                if "overall" in x #and "f1" in x
+                x.split("-")[0] + "_role": y for x, y in metric_dict.items() if "overall" in x
             }
-            frame_metric_dict = {
-                x + "_frame": y for x, y in frame_metric_dict.items() #if "fscore" in x
-            }
+            frame_metric_dict = {x + "_frame": y for x, y in frame_metric_dict.items()}
             return {**metric_dict_filtered, **frame_metric_dict}
 
     def _get_label_tokens(self, namespace: str = "labels"):
@@ -351,17 +291,10 @@ class TransformerSrlDependency(Model):
         label_smoothing: float = None,
         ignore_span_metric: bool = False,
         srl_eval_path: str = DEFAULT_SRL_EVAL_PATH,
-        restrict_frames: bool = False,
-        restrict_roles: bool = False,
         **kwargs,
     ) -> None:
         # bypass SrlBert constructor
         Model.__init__(self, vocab, **kwargs)
-        self.lemma_frame_dict = load_lemma_frame(LEMMA_FRAME_PATH)
-        self.frame_role_dict = load_role_frame(FRAME_ROLE_PATH)
-        self.restrict_frames = restrict_frames
-        self.restrict_roles = restrict_roles
-
         if isinstance(model_name, str):
             self.transformer = AutoModel.from_pretrained(model_name)
         else:
@@ -435,6 +368,7 @@ class TransformerSrlDependency(Model):
             input_ids=util.get_token_ids_from_text_field_tensors(tokens),
             token_type_ids=verb_indicator,
             attention_mask=mask,
+            return_dict=False,
         )
 
         # extract embeddings
@@ -489,32 +423,7 @@ class TransformerSrlDependency(Model):
     def decode_frames(self, output_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         # frame prediction
         frame_probabilities = output_dict["frame_probabilities"]
-        if self.restrict:
-            frame_probabilities = frame_probabilities.cpu().data.numpy()
-            lemmas = output_dict["lemma"]
-            candidate_labels = [self.lemma_frame_dict.get(l, []) for l in lemmas]
-            # clear candidates from unknowns
-            label_set = set(k for k in self._get_label_tokens("frames_labels"))
-            candidate_labels_ids = [
-                [
-                    self.vocab.get_token_index(l, namespace="frames_labels")
-                    for l in cl
-                    if l in label_set
-                ]
-                for cl in candidate_labels
-            ]
-
-            frame_predictions = []
-            for cl, fp in zip(candidate_labels_ids, frame_probabilities):
-                # restrict candidates from verbatlas inventory
-                fp_candidates = np.take(fp, cl)
-                if fp_candidates.size > 0:
-                    frame_predictions.append(cl[fp_candidates.argmax(axis=-1)])
-                else:
-                    frame_predictions.append(fp.argmax(axis=-1))
-        else:
-            frame_predictions = frame_probabilities.argmax(dim=-1).cpu().data.numpy()
-
+        frame_predictions = frame_probabilities.argmax(dim=-1).cpu().data.numpy()
         output_dict["frame_tags"] = [
             self.vocab.get_token_from_index(f, namespace="frames_labels") for f in frame_predictions
         ]
@@ -530,7 +439,7 @@ class TransformerSrlDependency(Model):
         output_dict = self.decode_frames(output_dict)
         # if self.restrict:
         #     output_dict = self._mask_args(output_dict)
-        # output_dict = super().make_output_human_readable(output_dict)
+        output_dict = super().make_output_human_readable(output_dict)
         roles_probabilities = output_dict["role_probabilities"]
         roles_predictions = roles_probabilities.argmax(dim=-1).cpu().data.numpy()
 
@@ -538,26 +447,6 @@ class TransformerSrlDependency(Model):
             [self.vocab.get_token_from_index(r, namespace="labels") for r in roles]
             for roles in roles_predictions
         ]
-        return output_dict
-
-    def _mask_args(self, output_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
-        class_probs = output_dict["class_probabilities"]
-        device = get_device_of(class_probs)
-        lemmas = output_dict["lemma"]
-        frames = output_dict["frame_tags"]
-        candidate_mask = torch.ones_like(class_probs, dtype=torch.bool).to(device)
-        for i, (l, f) in enumerate(zip(lemmas, frames)):
-            candidates = self.frame_role_dict.get((l, f), [])
-            if candidates:
-                canidate_ids = [
-                    self.vocab.get_token_index(r, namespace="labels") for r in candidates
-                ]
-                canidate_ids = torch.tensor(canidate_ids).to(device)
-                canidate_ids = canidate_ids.repeat(candidate_mask.shape[1], 1)
-                candidate_mask[i].scatter_(1, canidate_ids, False)
-            else:
-                candidate_mask[i].fill_(False)
-        class_probs.masked_fill_(candidate_mask, 0)
         return output_dict
 
     @overrides
@@ -582,4 +471,3 @@ class TransformerSrlDependency(Model):
         return self.vocab.get_index_to_token_vocabulary(namespace).keys()
 
     default_predictor = "transformer_srl"
-

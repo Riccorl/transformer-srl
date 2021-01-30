@@ -1,6 +1,6 @@
 import enum
 from typing import List, Dict, Type
-from allennlp.data.tokenizers.token import Token
+from allennlp.data.tokenizers.token_class import Token
 
 import numpy
 from allennlp.common import plugins
@@ -17,7 +17,10 @@ from spacy.tokens import Doc
 @Predictor.register("transformer_srl")
 class SrlTransformersPredictor(SemanticRoleLabelerPredictor):
     def __init__(
-        self, model: Model, dataset_reader: DatasetReader, language: str = "en_core_web_sm",
+        self,
+        model: Model,
+        dataset_reader: DatasetReader,
+        language: str = "en_core_web_sm",
     ) -> None:
         super().__init__(model, dataset_reader, language)
 
@@ -180,9 +183,9 @@ class SrlTransformersPredictor(SemanticRoleLabelerPredictor):
             model_type = config.get("model").get("type")
             model_class, _ = Model.resolve_class_name(model_type)
             predictor_name = model_class.default_predictor
-        predictor_class: Type[Predictor] = Predictor.by_name(  # type: ignore
-            predictor_name
-        ) if predictor_name is not None else cls
+        predictor_class: Type[Predictor] = (
+            Predictor.by_name(predictor_name) if predictor_name is not None else cls  # type: ignore
+        )
 
         if dataset_reader_to_load == "validation" and "validation_dataset_reader" in config:
             dataset_reader_params = config["validation_dataset_reader"]

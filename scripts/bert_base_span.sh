@@ -1,9 +1,9 @@
 #!/bin/bash
-source /home/orlando/miniconda3/bin/activate allennlp
+source /Users/ric/mambaforge/bin/activate srl-mt
 
-HOME="/home/orlando"
-DATASET="$HOME/datasets/ontonotes/conll-formatted-ontonotes-verbatlas"
-PROJECT="$HOME/transformer-srl"
+#HOME="/home/orlando"
+DATASET="/Users/ric/Documents/ComputerScience/Projects/transformer-srl/data/conll2012_pb"
+PROJECT="/Users/ric/Documents/ComputerScience/Projects/transformer-srl"
 # local
 # DATASET="/mnt/d/Datasets/conll2012/conll-formatted-ontonotes-verbatlas-subset"
 # PROJECT="/mnt/c/Users/rikkw/Desktop/Ric/Projects/srl-bert-span"
@@ -11,16 +11,7 @@ PROJECT="$HOME/transformer-srl"
 export SRL_TRAIN_DATA_PATH="$DATASET/data/train"
 export SRL_VALIDATION_DATA_PATH="$DATASET/data/development"
 
-CONFIG="$PROJECT/training_config/bert_base.jsonnet"
+CONFIG="$PROJECT/training_config/bert_base_span.jsonnet"
+MODEL_DIR="$PROJECT/models/bert_base_conll2012"
 
-free_mem=$(nvidia-smi --query-gpu=memory.free --format=csv -i 1 | grep -Eo [0-9]+)
-
-echo "$free_mem MB"
-while [ "$free_mem" -lt 10000 ]; do
-    free_mem=$(nvidia-smi --query-gpu=memory.free --format=csv -i 1 | grep -Eo [0-9]+)
-    sleep 5
-done
-
-echo "GPU finally free, training..."
-
-allennlp train $CONFIG -s models/bert_base_va --include-package transformer_srl #--recover
+allennlp train $CONFIG -s $MODEL_DIR --include-package transformer_srl --force #--recover

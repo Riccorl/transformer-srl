@@ -1,5 +1,4 @@
 import logging
-import pathlib
 from collections import defaultdict
 from typing import Any, DefaultDict, Dict, List, Set, Tuple
 
@@ -18,8 +17,6 @@ from overrides import overrides
 from transformers import AutoTokenizer
 
 logger = logging.getLogger(__name__)
-
-FRAME_LIST_PATH = pathlib.Path(__file__).resolve().parent / "resources" / "framelist.txt"
 
 
 def _convert_verb_indices_to_wordpiece_indices(
@@ -468,7 +465,10 @@ class SrlUdpDatasetReader(SrlTransformersSpanReader):
                 # transpose rolses, to have a list of roles per frame
                 roles = list(map(list, zip(*roles)))
                 current_frame = 0
-                for i, frame, in enumerate(frames):
+                for (
+                    i,
+                    frame,
+                ) in enumerate(frames):
                     if frame != "_":
                         verb_indicator = [0] * len(frames)
                         verb_indicator[i] = 1
