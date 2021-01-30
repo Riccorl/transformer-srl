@@ -305,10 +305,10 @@ class TransformerSrlSpan(SrlBert):
             metric_dict_filtered = {
                 x.split("-")[0] + "_role": y
                 for x, y in metric_dict.items()
-                if "overall" in x and "f1" in x
+                if "overall" in x #and "f1" in x
             }
             frame_metric_dict = {
-                x + "_frame": y for x, y in frame_metric_dict.items() if "fscore" in x
+                x + "_frame": y for x, y in frame_metric_dict.items() #if "fscore" in x
             }
             return {**metric_dict_filtered, **frame_metric_dict}
 
