@@ -2,7 +2,7 @@
 source /Users/ric/mambaforge/bin/activate srl-mt
 
 #HOME="/home/orlando"
-DATASET="/Users/ric/Documents/ComputerScience/Projects/transformer-srl/data/conll2012_pb"
+DATASET="/Users/ric/Documents/ComputerScience/Projects/transformer-srl/data/conll2012_pb_subset/"
 PROJECT="/Users/ric/Documents/ComputerScience/Projects/transformer-srl"
 # local
 # DATASET="/mnt/d/Datasets/conll2012/conll-formatted-ontonotes-verbatlas-subset"

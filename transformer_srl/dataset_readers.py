@@ -2,10 +2,11 @@ import logging
 from collections import defaultdict
 from typing import Any, DefaultDict, Dict, List, Set, Tuple
 
+import numpy as np
 from allennlp.common.file_utils import cached_path
 from allennlp.data.dataset_readers.dataset_reader import DatasetReader
 from allennlp.data.dataset_readers.dataset_utils.span_utils import TypedSpan
-from allennlp.data.fields import Field, MetadataField, SequenceLabelField, TextField
+from allennlp.data.fields import Field, MetadataField, SequenceLabelField, TextField, ArrayField
 from allennlp.data.instance import Instance
 from allennlp.data.token_indexers import PretrainedTransformerIndexer, TokenIndexer
 from allennlp.data.tokenizers import Token
@@ -14,7 +15,7 @@ from allennlp_models.structured_prediction import SrlReader
 from conllu import parse_incr
 from nltk import Tree
 from overrides import overrides
-from transformers import AutoTokenizer
+from transformers import AutoTokenizer, XLMRobertaTokenizer
 
 logger = logging.getLogger(__name__)
 
@@ -204,22 +205,19 @@ class SrlTransformersSpanReader(SrlReader):
         for sentence in self._ontonotes_subset(
             ontonotes_reader, file_path, self._domain_identifier
         ):
-            try:
-                tokens = [Token(t) for t in sentence.words]
-                sentence_id = sentence.sentence_id
-                if sentence.srl_frames:
-                    for (_, tags) in sentence.srl_frames:
-                        verb_indicator = [1 if label[-2:] == "-V" else 0 for label in tags]
-                        frames = self._get_predicate_labels(sentence, verb_indicator)
-                        lemmas = [
-                            f for f, v in zip(sentence.predicate_lemmas, verb_indicator) if v == 1
-                        ]
-                        if not all(v == 0 for v in verb_indicator):
-                            yield self.text_to_instance(
-                                tokens, verb_indicator, frames, lemmas, tags, sentence_id
-                            )
-            except:
-                print(sentence.sentence_id)
+            tokens = [Token(t) for t in sentence.words]
+            sentence_id = sentence.sentence_id
+            if sentence.srl_frames:
+                for (_, tags) in sentence.srl_frames:
+                    verb_indicator = [1 if label[-2:] == "-V" else 0 for label in tags]
+                    frames = self._get_predicate_labels(sentence, verb_indicator)
+                    lemmas = [
+                        f for f, v in zip(sentence.predicate_lemmas, verb_indicator) if v == 1
+                    ]
+                    if not all(v == 0 for v in verb_indicator):
+                        yield self.text_to_instance(
+                            tokens, verb_indicator, frames, lemmas, tags, sentence_id
+                        )
 
     def text_to_instance(  # type: ignore
         self,
@@ -244,13 +242,13 @@ class SrlTransformersSpanReader(SrlReader):
         frame_indicator = _convert_frames_indices_to_wordpiece_indices(verb_label, offsets, True)
 
         # add verb as information to the model
-        # verb_tokens = [token for token, v in zip(wordpieces, new_verbs) if v == 1]
-        # verb_tokens = verb_tokens + [self.tokenizer.sep_token]
-        # if isinstance(self.tokenizer, XLMRobertaTokenizer):
-        #     verb_tokens = [self.tokenizer.sep_token] + verb_tokens
-        # wordpieces += verb_tokens
-        # new_verbs += [0 for _ in range(len(verb_tokens))]
-        # frame_indicator += [0 for _ in range(len(verb_tokens))]
+        verb_tokens = [token for token, v in zip(wordpieces, new_verbs) if v == 1]
+        verb_tokens = verb_tokens + [self.tokenizer.sep_token]
+        if isinstance(self.tokenizer, XLMRobertaTokenizer):
+            verb_tokens = [self.tokenizer.sep_token] + verb_tokens
+        wordpieces += verb_tokens
+        new_verbs += [0 for _ in range(len(verb_tokens))]
+        frame_indicator += [0 for _ in range(len(verb_tokens))]
         # In order to override the indexing mechanism, we need to set the `text_id`
         # attribute directly. This causes the indexing to use this id.
         text_field = TextField(
@@ -260,12 +258,15 @@ class SrlTransformersSpanReader(SrlReader):
         verb_indicator = SequenceLabelField(new_verbs, text_field)
         frame_indicator = SequenceLabelField(frame_indicator, text_field)
 
+        sep_index = wordpieces.index(self.tokenizer.sep_token)
+
         metadata_dict["offsets"] = start_offsets
 
         fields: Dict[str, Field] = {
             "tokens": text_field,
             "verb_indicator": verb_indicator,
             "frame_indicator": frame_indicator,
+            "sentence_end": ArrayField(np.array(sep_index + 1, dtype=np.int64), dtype=np.int64),
         }
 
         if all(x == 0 for x in verb_label):

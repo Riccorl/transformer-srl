@@ -15,7 +15,7 @@ from allennlp_models.structured_prediction.metrics.srl_eval_scorer import (
 )
 from overrides import overrides
 from torch import nn
-from transformers import AutoModel
+from transformers import AutoModel, AutoConfig
 
 from transformer_srl.utils import load_label_list
 
@@ -49,6 +49,8 @@ class TransformerSrlSpan(SrlBert):
         vocab: Vocabulary,
         bert_model: Union[str, AutoModel],
         embedding_dropout: float = 0.0,
+        num_lstms: int = 2,
+        dense_units: int = 300,
         initializer: InitializerApplicator = InitializerApplicator(),
         label_smoothing: float = None,
         ignore_span_metric: bool = False,
@@ -58,7 +60,8 @@ class TransformerSrlSpan(SrlBert):
     ) -> None:
         # bypass SrlBert constructor
         Model.__init__(self, vocab, **kwargs)
-        self.transformer = AutoModel.from_pretrained(bert_model)
+        self.tr_config = AutoConfig.from_pretrained(bert_model, output_hidden_states=True)
+        self.transformer = AutoModel.from_pretrained(bert_model, config=self.tr_config)
         self.frame_criterion = nn.CrossEntropyLoss()
         if inventory == "verbatlas":
             # add missing frame labels
@@ -76,9 +79,20 @@ class TransformerSrlSpan(SrlBert):
         else:
             self.span_metric = None
         self.f1_frame_metric = FBetaMeasure(average="micro")
-        self.tag_projection_layer = nn.Linear(self.transformer.config.hidden_size, self.num_classes)
+        self.lstms = nn.LSTM(
+            self.tr_config.hidden_size,
+            self.tr_config.hidden_size,
+            num_layers=num_lstms,
+            dropout=0.2 if num_lstms > 1 else 0,
+            bidirectional=True,
+        )
+        self.tag_projection_layer = torch.nn.Sequential(
+            nn.Linear(self.tr_config.hidden_size * 2, dense_units),
+            nn.ReLU(),
+            nn.Linear(dense_units, self.num_classes),
+        )
         self.frame_projection_layer = nn.Linear(
-            self.transformer.config.hidden_size, self.frame_num_classes
+            self.tr_config.hidden_size, self.frame_num_classes
         )
         self.embedding_dropout = nn.Dropout(p=embedding_dropout)
         self._label_smoothing = label_smoothing
@@ -89,6 +103,7 @@ class TransformerSrlSpan(SrlBert):
         self,
         tokens: TextFieldTensors,
         verb_indicator: torch.Tensor,
+        sentence_end: torch.LongTensor,
         frame_indicator: torch.Tensor,
         metadata: List[Any],
         tags: torch.LongTensor = None,
@@ -135,17 +150,27 @@ class TransformerSrlSpan(SrlBert):
         """
         mask = get_text_field_mask(tokens)
         input_ids = util.get_token_ids_from_text_field_tensors(tokens)
-        bert_embeddings, _ = self.transformer(
+        if self.tr_config.type_vocab_size != 1:
+            verb_indicator = torch.zeros_like(verb_indicator)
+        embeddings = self.transformer(
             input_ids=input_ids,
             token_type_ids=verb_indicator,
             attention_mask=mask,
             return_dict=False,
         )
-        # extract embeddings
-        embedded_text_input = self.embedding_dropout(bert_embeddings)
-        frame_embeddings = embedded_text_input[frame_indicator == 1]
+        embeddings = embeddings[2][-4:]
+        embeddings = torch.stack(embeddings, dim=0).sum(dim=0)
         # get sizes
-        batch_size, sequence_length, _ = embedded_text_input.size()
+        batch_size, sequence_length, _ = embeddings.size()
+        # extract embeddings
+        embedded_text_input = self.embedding_dropout(embeddings)
+        frame_embeddings = embedded_text_input[frame_indicator == 1]
+        predicate_embeddings = torch.index_select(embedded_text_input, 1, sentence_end)
+        print(predicate_embeddings.shape)
+        print(embedded_text_input.shape)
+        # embedded_text_input += predicate_embeddings
+        # lstm pass
+        embedded_text_input = self.lstms(embedded_text_input)[0]
         # outputs
         logits = self.tag_projection_layer(embedded_text_input)
         frame_logits = self.frame_projection_layer(frame_embeddings)
