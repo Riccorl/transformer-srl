@@ -13,7 +13,15 @@ Install the library
 pip install transformer-srl
 ```
 
-Download the pretrained model `srl_bert_base_conll2012.tar.gz` from [here](https://www.dropbox.com/s/4tes6ypf2do0feb/srl_bert_base_conll2012.tar.gz).
+## Pre-trained model
+
+You can also use a pre-trained model. To use it, first install the correct version of `transformer-srl`:
+
+```bash
+pip install transformer-srl==2.4.6
+```
+
+then download the pretrained model `srl_bert_base_conll2012.tar.gz` from [here](https://www.dropbox.com/s/4tes6ypf2do0feb/srl_bert_base_conll2012.tar.gz).
 
 | File | Model | Version | F1 Argument | F1 Predicate |
 | :---: | :---: | :---: | :---: | :---: |
