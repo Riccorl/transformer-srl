@@ -3,7 +3,7 @@
 
 # Semantic Role Lableing with BERT
 
-Semantic Role Labeling based on [AllenNLP implementation](https://demo.allennlp.org/semantic-role-labeling) of [Shi et al, 2019](https://arxiv.org/abs/1904.05255). Can be trained using both PropBank and [VerbAatlas](http://verbatlas.org/) inventories and implements also the predicate disambiguation task, in addition to arguments identification and disambiguation.
+Semantic Role Labeling based on [AllenNLP implementation](https://demo.allennlp.org/semantic-role-labeling) of [Shi et al, 2019](https://arxiv.org/abs/1904.05255). Can be trained using both PropBank and [VerbAtlas](http://verbatlas.org/) inventories and implements also the predicate disambiguation task, in addition to arguments identification and disambiguation.
 
 ## How to use
 
